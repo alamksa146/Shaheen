@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shaheen Mart POS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --bg:#eceff3; --surface:#ffffff; --ink:#101a26; --muted:#5f6b7a; --line:#d9dee5;
+  --brand:#1d4e89; --brand-ink:#ffffff; --tag:#ffc933; --tag-ink:#1a1400;
+  --danger:#c0392b; --ok:#1c8a4e; --warn:#b36b00; --soft:#f5f7fa;
+  --shadow:0 1px 2px rgba(16,26,38,.08),0 8px 24px rgba(16,26,38,.07);
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e141b; --surface:#17202a; --ink:#eaf0f6; --muted:#9aa8b8; --line:#2a3644;
+    --brand:#5b9bdc; --brand-ink:#06121f; --tag:#ffc933; --tag-ink:#1a1400;
+    --danger:#ff7a6b; --ok:#4cc884; --warn:#f0a63a; --soft:#1d2833;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e141b; --surface:#17202a; --ink:#eaf0f6; --muted:#9aa8b8; --line:#2a3644;
+  --brand:#5b9bdc; --brand-ink:#06121f; --tag:#ffc933; --tag-ink:#1a1400;
+  --danger:#ff7a6b; --ok:#4cc884; --warn:#f0a63a; --soft:#1d2833;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Avenir Next","Segoe UI",Roboto,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px;line-height:1.4;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+input{font-size:16px}
+h2,h3{margin:0}
+
+/* header */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--brand);color:var(--brand-ink);
+  padding:12px 16px;display:flex;align-items:center;gap:12px}
+.brand{flex:1;min-width:0}
+.brand-name{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:21px;letter-spacing:.2px;line-height:1.1}
+.brand-sub{font-size:12px;opacity:.85}
+.today{background:rgba(255,255,255,.16);border-radius:10px;padding:6px 10px;text-align:right;font-size:12px;line-height:1.2}
+.today b{display:block;font-size:15px}
+.icon-btn{background:rgba(255,255,255,.16);border:0;border-radius:10px;width:38px;height:38px;display:grid;place-items:center;color:inherit}
+
+/* layout */
+main{max-width:720px;margin:0 auto;padding:14px 14px 190px}
+.view{display:none}.view.on{display:block}
+.card{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:14px}
+.sec-h{display:flex;align-items:center;justify-content:space-between;margin:20px 2px 8px}
+.sec-h h2{font-size:17px}
+.link{background:none;border:0;color:var(--brand);font-weight:600;padding:4px 2px}
+.empty{padding:22px 12px;text-align:center;color:var(--muted);background:var(--surface);border:1.5px dashed var(--line);border-radius:12px}
+
+/* scan button: a shelf price tag */
+.scan-btn{width:100%;display:flex;align-items:center;gap:14px;border:0;text-align:left;
+  background:var(--tag);color:var(--tag-ink);padding:16px 18px 16px 22px;border-radius:6px 16px 16px 6px;
+  box-shadow:var(--shadow);position:relative;font-weight:700;font-size:18px;
+  clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}
+.scan-btn::before{content:"";width:12px;height:12px;border-radius:50%;background:var(--bg);position:absolute;left:8px;top:50%;margin-top:-6px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+.scan-btn small{display:block;font-weight:500;font-size:13px;opacity:.8}
+.scan-btn svg{flex:none}
+.scan-btn:active{transform:scale(.99)}
+
+/* inputs */
+.field,input[type=text],input[type=number],input[type=search]{width:100%;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:11px 12px;min-height:44px}
+input:focus{outline:2px solid var(--brand);outline-offset:1px;border-color:var(--brand)}
+label{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:12px}
+label input{margin-top:5px;color:var(--ink);font-weight:400}
+.row{display:flex;gap:8px;align-items:flex-end}
+.row>input{flex:1;min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.btn{border:0;border-radius:10px;padding:11px 16px;font-weight:700;min-height:44px;background:var(--soft);color:var(--ink);border:1.5px solid var(--line)}
+.btn.primary{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.btn.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+.btn.ghost{background:transparent}
+.btn.big{padding:13px 22px;font-size:16px}
+.btn[disabled]{opacity:.45}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.actions .btn{flex:1}
+.err{color:var(--danger);font-size:13px;min-height:18px;margin-bottom:6px}
+
+/* results */
+#results{margin-top:8px}
+.res{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;text-align:left;
+  background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px}
+.res[disabled]{opacity:.5}
+.res .p{font-weight:700}
+.notfound{background:var(--surface);border:1.5px dashed var(--danger);border-radius:10px;padding:12px;margin-top:8px}
+
+/* cart lines */
+.line{display:grid;grid-template-columns:1fr auto 28px;grid-template-areas:"main step x" "main total x";gap:4px 10px;align-items:center;
+  background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:12px;margin-bottom:8px}
+.l-main{grid-area:main;min-width:0}
+.l-name{font-weight:700;overflow-wrap:anywhere}
+.l-sub{font-size:12.5px;color:var(--muted)}
+.stepper{grid-area:step;display:flex;align-items:center;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.stepper button{border:0;background:var(--soft);width:38px;height:38px;font-size:20px;line-height:1}
+.stepper input{width:46px;text-align:center;border:0;border-radius:0;padding:0;min-height:38px;background:var(--surface)}
+.l-total{grid-area:total;text-align:right;font-weight:700}
+.x{grid-area:x;border:0;background:none;color:var(--muted);font-size:24px;line-height:1;align-self:start}
+
+/* totals as a shelf label */
+.sum{margin-top:12px;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);background:var(--surface)}
+.sum .r{display:flex;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--line)}
+.sum .r:last-child{border-bottom:0}
+.sum .total{background:var(--tag);color:var(--tag-ink);font-weight:800;font-size:20px;padding:12px 14px}
+.sum .due{font-weight:800}
+.sum .due.owing{color:var(--danger)}
+.sum .due.clear{color:var(--ok)}
+
+/* save bar */
+.savebar{position:fixed;left:0;right:0;bottom:calc(60px + env(safe-area-inset-bottom,0px));z-index:15;padding:10px 14px;
+  background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 20px rgba(0,0,0,.08)}
+.savebar-in{max-width:720px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.savebar-in .grow{flex:1}
+.sb-l{font-size:12px;color:var(--muted)}
+.sb-v{font-size:22px;font-weight:800}
+.savebar .btn{flex:1.2}
+
+/* bottom nav */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:16;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.nav-in{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr)}
+nav button{border:0;background:none;height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--muted);font-size:12.5px;font-weight:600;position:relative}
+nav button.on{color:var(--brand)}
+nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:3px;background:var(--brand);border-radius:0 0 3px 3px}
+.badge-dot{position:absolute;top:6px;left:calc(50% + 8px);background:var(--danger);color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;display:grid;place-items:center;padding:0 5px}
+
+/* stats */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:12px}
+.stat .v{font-size:19px;font-weight:800}
+.stat .k{font-size:12.5px;color:var(--muted)}
+.stat.warn .v{color:var(--danger)}
+.chips{display:flex;gap:8px;margin:12px 0 8px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 14px;font-weight:600;font-size:13.5px}
+.chip.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+
+/* list rows */
+.prow,.irow{display:flex;width:100%;justify-content:space-between;align-items:center;gap:12px;text-align:left;
+  background:var(--surface);border:0;border-radius:12px;box-shadow:var(--shadow);padding:12px;margin-bottom:8px}
+.prow .n,.irow .n{font-weight:700;overflow-wrap:anywhere}
+.prow .s,.irow .s{font-size:12.5px;color:var(--muted)}
+.right{text-align:right;flex:none}
+.pill{display:inline-block;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;margin-top:3px}
+.pill.ok{background:rgba(28,138,78,.14);color:var(--ok)}
+.pill.low{background:rgba(179,107,0,.16);color:var(--warn)}
+.pill.out,.pill.unpaid{background:rgba(192,57,43,.14);color:var(--danger)}
+.pill.part{background:rgba(179,107,0,.16);color:var(--warn)}
+.pill.paid{background:rgba(28,138,78,.14);color:var(--ok)}
+
+/* sheet */
+.backdrop{position:fixed;inset:0;background:rgba(5,10,18,.55);z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
+.backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--bg);border-radius:18px 18px 0 0;max-height:92%;overflow:auto;
+  transform:translateY(105%);transition:transform .25s ease;padding:8px 16px calc(18px + env(safe-area-inset-bottom,0px));max-width:720px;margin:0 auto}
+.sheet.open{transform:none}
+.grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px}
+.sheet h3{font-size:19px;margin-bottom:12px}
+
+/* receipt */
+.receipt{background:var(--surface);border-radius:12px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
+.r-shop{font-family:Georgia,serif;font-size:21px;font-weight:700;text-align:center}
+.r-meta{font-size:12.5px;color:var(--muted);text-align:center}
+.r-items{width:100%;border-collapse:collapse;margin:12px 0}
+.r-items td{padding:6px 0;border-bottom:1px dashed var(--line);vertical-align:top}
+.r-items td:last-child{text-align:right;white-space:nowrap}
+.r-sum .r{display:flex;justify-content:space-between;padding:3px 0}
+.r-sum .big{font-weight:800;font-size:17px;border-top:2px solid var(--ink);margin-top:4px;padding-top:6px}
+.r-pay{margin-top:10px;font-size:13px;color:var(--muted)}
+.r-pay div{display:flex;justify-content:space-between}
+.paybox{background:var(--surface);border-radius:12px;padding:12px;box-shadow:var(--shadow);margin-bottom:12px}
+
+/* scanner */
+.scanner{position:fixed;inset:0;z-index:60;background:#05090e;color:#fff;display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.scan-top{display:flex;align-items:center;justify-content:space-between;padding:12px 16px}
+.scan-top b{font-size:17px}
+.scan-top button{background:var(--tag);color:var(--tag-ink);border:0;border-radius:10px;padding:9px 18px;font-weight:800}
+#reader{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#reader video{width:100%!important;max-height:100%;object-fit:cover}
+.scan-msg{margin:10px 16px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.1);font-size:14.5px;min-height:46px}
+.scan-msg.good{background:rgba(76,200,132,.22)}
+.scan-msg.bad{background:rgba(255,122,107,.25)}
+.scan-msg button{margin-left:6px;background:#fff;color:#111;border:0;border-radius:8px;padding:5px 10px;font-weight:700}
+.scan-manual{display:flex;gap:8px;padding:0 16px 14px}
+.scan-manual input{flex:1;background:#fff;color:#111;border-color:#fff}
+.scan-manual button{background:var(--tag);color:var(--tag-ink);border:0;border-radius:10px;padding:0 18px;font-weight:800}
+
+#toast{position:fixed;left:50%;bottom:calc(140px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);z-index:80;background:var(--ink);color:var(--bg);
+  padding:10px 16px;border-radius:99px;font-weight:600;font-size:14px;opacity:0;pointer-events:none;transition:all .2s;max-width:90%;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media print{
+  .top,nav,main,.savebar,.backdrop,.no-print,.grab,#toast,.scanner{display:none!important}
+  body{background:#fff}
+  .sheet{position:static;transform:none;max-height:none;padding:0;background:#fff}
+  .receipt{box-shadow:none;color:#000}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Shaheen Mart upgrades */
+.logo-preview{width:82px;height:58px;border:1px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--soft);margin-bottom:8px}
+.logo-preview img{max-width:100%;max-height:100%;object-fit:contain}
+.logo-upload{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.quick-card{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--soft)}
+.unit-tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;background:var(--soft);color:var(--muted);margin-left:4px}
+.share-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.receipt-logo{max-width:110px;max-height:65px;object-fit:contain;margin:0 auto 6px;display:block}
+.r-shop{text-align:center;font-size:18px;font-weight:800}
+.r-meta{text-align:center}
+.lang-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.lang-btn{padding:11px 6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:700}
+.lang-btn.on{border-color:var(--brand);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 15%,transparent)}
+.rtl{direction:rtl}
+.rtl input,.rtl select,.rtl textarea{text-align:right}
+.small-help{font-size:12px;color:var(--muted);margin-top:4px}
+@media(max-width:520px){.share-row{grid-template-columns:1fr 1fr}.lang-grid{grid-template-columns:repeat(3,1fr)}}
+
+
+/* Premium invoice / JPG sharing */
+.invoice-paper{
+  width:100%; max-width:760px; margin:0 auto; background:#fff; color:#111;
+  border:1.5px solid #222; border-radius:2px; padding:24px; box-sizing:border-box;
+  font-family:Arial, "Noto Naskh Arabic", sans-serif;
+}
+.invoice-head{display:grid;grid-template-columns:1fr 190px;gap:18px;min-height:145px;align-items:start}
+.invoice-brand{text-align:center;padding-top:4px}
+.invoice-logo{max-width:150px;max-height:82px;object-fit:contain;margin:0 auto 8px;display:block}
+.invoice-shop{font-size:25px;font-weight:900;letter-spacing:.2px}
+.invoice-sub{font-size:13px;line-height:1.5}
+.stamp-box{border:1.5px solid #222;border-radius:12px;height:120px;padding:10px;box-sizing:border-box;font-weight:700;text-align:center;font-size:13px}
+.stamp-space{height:82px}
+.invoice-divider{border-top:2px solid #222;margin:12px 0}
+.invoice-info{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid #222;border-bottom:1px solid #222}
+.info-cell{padding:9px 10px;border-bottom:1px solid #222;font-size:14px}
+.info-cell:nth-child(odd){border-right:1px solid #222}
+.info-label{font-weight:800;margin-right:8px}
+.invoice-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+.invoice-table th,.invoice-table td{border:1px solid #222;padding:9px 8px}
+.invoice-table th{font-size:14px;background:#f5f5f5}
+.invoice-table .desc{text-align:left}
+.invoice-table .num{text-align:center}
+.invoice-table .amt{text-align:right}
+.invoice-bottom{display:grid;grid-template-columns:1fr 300px;margin-top:0}
+.invoice-notes{border-left:1px solid #222;border-bottom:1px solid #222;min-height:130px;padding:12px;font-size:12px}
+.invoice-totals{border-right:1px solid #222;border-bottom:1px solid #222}
+.total-row{display:grid;grid-template-columns:1fr 125px;border-bottom:1px solid #222}
+.total-row span{padding:8px 10px}
+.total-row span:last-child{text-align:right;border-left:1px solid #222}
+.total-row.grand{font-size:18px;font-weight:900}
+.invoice-foot{display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #222;margin-top:14px}
+.foot-box{padding:10px;border-right:1px solid #222;font-size:13px}
+.foot-box:last-child{border-right:0}
+.invoice-rtl{direction:rtl}
+.invoice-rtl .invoice-table .desc,.invoice-rtl .info-cell{text-align:right}
+.invoice-rtl .info-cell:nth-child(odd){border-right:0;border-left:1px solid #222}
+.invoice-rtl .info-label{margin-left:8px;margin-right:0}
+.invoice-rtl .invoice-table .amt{text-align:left}
+.invoice-rtl .invoice-table .desc{text-align:right}
+.invoice-rtl .stamp-box{text-align:center}
+.invoice-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+@media(max-width:650px){
+ .invoice-head{grid-template-columns:1fr 145px}.stamp-box{height:105px}.stamp-space{height:65px}
+ .invoice-bottom{grid-template-columns:1fr 220px}.invoice-actions{grid-template-columns:1fr 1fr}
+ .invoice-paper{padding:14px}.invoice-shop{font-size:20px}
+}
+
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <div class="brand-name" id="shopName">Shaheen Mart</div>
+    <div class="brand-sub">Point of sale</div>
+  </div>
+  <div class="today"><span>Today's sales</span><b id="hdrToday">0.00</b></div>
+  <button class="icon-btn" onclick="openSettings()" aria-label="Settings">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <!-- SELL -->
+  <section class="view on" id="v-sell">
+    <button class="scan-btn" onclick="startSellScan()">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M4 12h16"/></svg>
+      <span>Scan item<small>Barcode or QR code adds it to the invoice</small></span>
+    </button>
+
+    <div style="margin-top:12px">
+      <input id="q" type="search" placeholder="Type a name or code, then press Enter" enterkeyhint="search" autocomplete="off"
+        oninput="onQ()" onkeydown="if(event.key==='Enter')enterQ()">
+      <div id="results"></div>
+      <div class="quick-card">
+        <button class="btn" style="width:100%" onclick="addQuickItem()">＋ ${t('quick')}</button>
+      </div>
+    </div>
+
+    <div class="sec-h"><h2>New invoice</h2><button class="link" id="clearBtn" onclick="clearCart()" hidden>Clear all</button></div>
+    <div id="cartList"></div>
+
+    <div class="card" id="payCard" style="margin-top:12px" hidden>
+      <label>Customer name (optional)<input id="custPhone" type="tel" placeholder="Customer phone (optional)" style="margin-bottom:6px">
+      <input id="custName" type="text" placeholder="Walk-in customer" autocomplete="off"></label>
+      <div class="grid2">
+        <label>Discount<input id="disc" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" oninput="updateTotals()"></label>
+        <label>Amount received<input id="paid" type="number" inputmode="decimal" min="0" step="0.01" oninput="paidTouched=true;updateTotals()"></label>
+      </div>
+      <div class="actions" style="margin-top:0">
+        <button class="btn ghost" onclick="payFull()">Paid in full</button>
+        <button class="btn ghost" onclick="payNone()">Pay later</button>
+      </div>
+      <div class="sum">
+        <div class="r"><span>Subtotal</span><span id="sSub"></span></div>
+        <div class="r"><span>Discount</span><span id="sDisc"></span></div>
+        <div class="r total"><span>Total</span><span id="sTotal"></span></div>
+        <div class="r"><span>Received</span><span id="sPaid"></span></div>
+        <div class="r"><span>Balance due</span><span id="sDue" class="due"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOCK -->
+  <section class="view" id="v-stock">
+    <div class="stats" id="stockStats"></div>
+    <div class="row" style="margin-top:12px;align-items:stretch">
+      <input id="sq" type="search" placeholder="Search products" oninput="renderStock()" autocomplete="off">
+      <button class="btn primary" onclick="openProductForm()">Add product</button>
+    </div>
+    <div class="chips">
+      <button class="chip on" id="fAll" onclick="setStockFilter('all')">All items</button>
+      <button class="chip" id="fLow" onclick="setStockFilter('low')">Low or out of stock</button>
+    </div>
+    <div id="stockList"></div>
+  </section>
+
+  <!-- INVOICES -->
+  <section class="view" id="v-inv">
+    <div class="stats" id="invStats"></div>
+    <div style="margin-top:12px"><input id="iq" type="search" placeholder="Search invoice number or customer" oninput="renderInv()" autocomplete="off"></div>
+    <div class="chips">
+      <button class="chip on" id="iAll" onclick="setInvFilter('all')">All invoices</button>
+      <button class="chip" id="iDue" onclick="setInvFilter('due')">Balance due</button>
+    </div>
+    <div id="invList"></div>
+  </section>
+</main>
+
+<div class="savebar" id="saveBar" hidden>
+  <div class="savebar-in">
+    <div class="grow"><div class="sb-l">Total</div><div class="sb-v" id="sbTotal"></div></div>
+    <button class="btn primary big" onclick="saveInvoice()">Save invoice</button>
+  </div>
+</div>
+
+<nav>
+  <div class="nav-in">
+    <button id="n-sell" class="on" onclick="go('sell')">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6"/></svg>
+      Sell
+    </button>
+    <button id="n-stock" onclick="go('stock')">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+      Stock<span class="badge-dot" id="lowBadge" hidden></span>
+    </button>
+    <button id="n-inv" onclick="go('inv')">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+      Invoices<span class="badge-dot" id="dueBadge" hidden></span>
+    </button>
+  </div>
+</nav>
+
+<div class="backdrop" id="backdrop" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
+
+<div class="scanner" id="scanner" hidden>
+  <div class="scan-top"><b id="scanTitle">Scan</b><button onclick="closeScanner()">Done</button></div>
+  <div id="reader"></div>
+  <div class="scan-msg" id="scanMsg">Point the camera at a barcode or QR code.</div>
+  <div class="scan-manual">
+    <input id="manual" type="text" placeholder="Or type or scan a code" autocomplete="off" onkeydown="if(event.key==='Enter')manualCode()">
+    <button onclick="manualCode()">Add</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ---------- state & storage ---------- */
+const KEY = 'shaheen_mart_pos_v1';
+let S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
+let cart = [];
+let view = 'sell';
+let paidTouched = false;
+let stockFilter = 'all', invFilter = 'all';
+let lastUnknown = '';
+let formAddAfter = false;
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      S.products = d.products || [];
+      S.invoices = d.invoices || [];
+      S.settings = Object.assign(S.settings, d.settings || {});
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function seed() {
+  const items = [
+    ['Basmati Rice 5kg', '8901234500011', 1450, 24],
+    ['Cooking Oil 1L', '8901234500028', 480, 40],
+    ['Sugar 1kg', '8901234500035', 160, 60],
+    ['Milk Pack 1L', '8901234500042', 290, 30],
+    ['Tea Leaves 190g', '8901234500059', 380, 18],
+    ['Biscuits Family Pack', '8901234500066', 60, 100],
+    ['Bottled Water 1.5L', '8901234500073', 100, 48],
+    ['Detergent Powder 1kg', '8901234500080', 420, 3]
+  ];
+  S.products = items.map(i => ({ id: uid(), name: i[0], barcode: i[1], price: i[2], qty: i[3], low: 5, sold: 0, unit:'pcs' }));
+}
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const r2 = n => Math.round((+n || 0) * 100) / 100;
+const num = n => r2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = n => S.settings.cur + ' ' + num(n);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = c => { c = String(c || '').trim(); return /^\d+$/.test(c) ? c.replace(/^0+/, '') : c.toLowerCase(); };
+const prod = id => S.products.find(p => p.id === id);
+const findByBarcode = code => { const n = norm(code); return n ? S.products.find(p => p.barcode && norm(p.barcode) === n) : null; };
+function searchProducts(t){ t=String(t||'').toLowerCase(); return S.products.filter(p=>p.name.toLowerCase().includes(t)||(p.barcode||'').toLowerCase().includes(t)).slice(0,8); }
+const isToday = iso => new Date(iso).toDateString() === new Date().toDateString();
+const fmtDate = iso => new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const invPaid = inv => r2(inv.payments.reduce((s, p) => s + p.amt, 0));
+const invDue = inv => Math.max(0, r2(inv.total - invPaid(inv)));
+const invStatus = inv => invDue(inv) <= 0.004 ? 'paid' : (invPaid(inv) > 0 ? 'part' : 'unpaid');
+const statusLabel = { paid: 'Paid', part: 'Part paid', unpaid: 'Unpaid' };
+
+let toastT;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+}
+let ac;
+function beep(ok) {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.value = ok ? 880 : 200; g.gain.value = .09;
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + (ok ? .1 : .28));
+  } catch (e) {}
+  try { if (navigator.vibrate) navigator.vibrate(ok ? 30 : [70, 40, 70]); } catch (e) {}
+}
+function confirmTap(btn, fn) {
+  if (btn.dataset.armed) { fn(); return; }
+  btn.dataset.armed = '1'; btn.dataset.label = btn.textContent; btn.textContent = 'Tap again to confirm';
+  setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = btn.dataset.label; } }, 3000);
+}
+
+/* ---------- navigation ---------- */
+function go(v) {
+  view = v;
+  ['sell', 'stock', 'inv'].forEach(k => {
+    $('v-' + k).classList.toggle('on', k === v);
+    $('n-' + k).classList.toggle('on', k === v);
+  });
+  if (v === 'stock') renderStock();
+  if (v === 'inv') renderInv();
+  refreshChrome();
+  window.scrollTo(0, 0);
+}
+function refreshChrome() {
+  $('shopName').textContent = S.settings.shop;
+  document.title = S.settings.shop + ' POS';
+  const todaySales = S.invoices.filter(i => isToday(i.at)).reduce((s, i) => s + i.total, 0);
+  $('hdrToday').textContent = money(todaySales);
+  const low = S.products.filter(p => p.qty <= (p.low || 0)).length;
+  $('lowBadge').hidden = !low; $('lowBadge').textContent = low;
+  const dueCount = S.invoices.filter(i => invDue(i) > 0.004).length;
+  $('dueBadge').hidden = !dueCount; $('dueBadge').textContent = dueCount;
+  $('saveBar').hidden = !(view === 'sell' && cart.length);
+}
+
+/* ---------- selling ---------- */
+function addToCart(p, n) {
+  n = n || 1;
+  const line = cart.find(l => l.pid === p.id);
+  const have = line ? line.qty : 0;
+  if (have + n > p.qty) { toast(p.qty <= 0 ? p.name + ' is out of stock' : 'Only ' + p.qty + ' of ' + p.name + ' in stock'); return false; }
+  if (line) line.qty += n; else cart.push({ pid: p.id, name: p.name, barcode: p.barcode, price: p.price, qty: n });
+  renderCart();
+  return true;
+}
+function chg(i, d) {
+  const l = cart[i], p = prod(l.pid); if (!l) return;
+  const nq = l.qty + d;
+  if (nq < 1) { rm(i); return; }
+  if (!p || nq > p.qty) { toast('Only ' + (p ? p.qty : 0) + ' in stock'); return; }
+  l.qty = nq; renderCart();
+}
+function setQty(i, v) {
+  const l = cart[i], p = prod(l.pid); let n = Math.floor(+v);
+  if (!n || n < 1) n = 1;
+  if (p && n > p.qty) { n = p.qty; toast('Only ' + p.qty + ' in stock'); }
+  l.qty = n; renderCart();
+}
+function rm(i) { cart.splice(i, 1); renderCart(); }
+function clearCart() { cart = []; $('disc').value = ''; $('custName').value = ''; paidTouched = false; renderCart(); }
+
+function renderCart() {
+  const el = $('cartList');
+  if (!cart.length) {
+    el.innerHTML = '<div class="empty">No items yet. Tap Scan item, or search above.</div>';
+  } else {
+    el.innerHTML = cart.map((l, i) => {
+      const p = prod(l.pid), left = (p ? p.qty : 0) - l.qty;
+      return `<div class="line">
+        <div class="l-main"><div class="l-name">${esc(l.name)}</div><div class="l-sub">${money(l.price)} each, ${left} left after this sale</div></div>
+        <div class="stepper"><button onclick="chg(${i},-1)" aria-label="Less">&minus;</button><input type="number" inputmode="numeric" min="1" value="${l.qty}" onchange="setQty(${i},this.value)" aria-label="Quantity"><button onclick="chg(${i},1)" aria-label="More">+</button></div>
+        <div class="l-total">${money(l.price * l.qty)}</div>
+        <button class="x" onclick="rm(${i})" aria-label="Remove item">&times;</button>
+      </div>`;
+    }).join('');
+  }
+  $('payCard').hidden = !cart.length;
+  $('clearBtn').hidden = !cart.length;
+  updateTotals();
+}
+function totals() {
+  const sub = r2(cart.reduce((s, l) => s + l.price * l.qty, 0));
+  const disc = Math.min(Math.max(0, r2($('disc').value)), sub);
+  const total = r2(sub - disc);
+  let paid = paidTouched ? Math.min(Math.max(0, r2($('paid').value)), total) : total;
+  return { sub, disc, total, paid, due: r2(total - paid) };
+}
+function updateTotals() {
+  const t = totals();
+  if (!paidTouched) $('paid').value = t.total ? t.total : '';
+  $('sSub').textContent = money(t.sub);
+  $('sDisc').textContent = '- ' + money(t.disc);
+  $('sTotal').textContent = money(t.total);
+  $('sPaid').textContent = money(t.paid);
+  const d = $('sDue'); d.textContent = money(t.due);
+  d.className = 'due ' + (t.due > 0.004 ? 'owing' : 'clear');
+  $('sbTotal').textContent = money(t.total);
+  refreshChrome();
+}
+function payFull() { paidTouched = false; updateTotals(); }
+function payNone() { paidTouched = true; $('paid').value = 0; updateTotals(); }
+
+function saveInvoice() {
+  if (!cart.length) { toast('Add at least one item'); return; }
+  for (const l of cart) {
+    const p = prod(l.pid);
+    if (!p) { toast(l.name + ' is no longer in stock list'); return; }
+    if (p.qty < l.qty) { toast('Only ' + p.qty + ' of ' + p.name + ' left'); return; }
+  }
+  const t = totals();
+  const now = new Date().toISOString();
+  cart.forEach(l => { const p = prod(l.pid); p.qty -= l.qty; p.sold = (p.sold || 0) + l.qty; });
+  const inv = {
+    id: uid(), no: 'INV-' + String(S.settings.next).padStart(4, '0'), at: now,
+    customer: $('custName').value.trim(),
+    items: cart.map(l => ({ pid: l.pid, name: l.name, barcode: l.barcode, price: l.price, qty: l.qty })),
+    subtotal: t.sub, discount: t.disc, total: t.total,
+    payments: t.paid > 0 ? [{ amt: t.paid, at: now }] : []
+  };
+  S.settings.next++;
+  S.invoices.unshift(inv);
+  save();
+  clearCart();
+  go('sell');
+  toast(inv.no + ' saved, stock updated');
+  showInvoice(inv.id);
+}
+
+/* lookup */
+function onQ() {
+  const v = $('q').value.trim(), box = $('results');
+  if (!v) { box.innerHTML = ''; return; }
+  const m = searchProducts(v);
+  box.innerHTML = m.map(p => `<button class="res" ${p.qty <= 0 ? 'disabled' : ''} onclick="pickResult('${p.id}')">
+      <span><span class="p">${esc(p.name)}</span><br><small>${p.qty} in stock</small></span><b>${money(p.price)}</b></button>`).join('');
+}
+function pickResult(id) { const p = prod(id); if (p && addToCart(p)) { $('q').value = ''; onQ(); } }
+function enterQ() {
+  const v = $('q').value.trim(); if (!v) return;
+  const p = findByBarcode(v);
+  if (p) { if (addToCart(p)) { beep(true); $('q').value = ''; onQ(); } return; }
+  const m = searchProducts(v);
+  if (m.length === 1) { pickResult(m[0].id); return; }
+  if (!m.length) {
+    lastUnknown = v;
+    $('results').innerHTML = `<div class="notfound">Nothing matches <b>${esc(v)}</b>. <button class="link" onclick="addUnknown()">Add as new product</button></div>`;
+  }
+}
+function addUnknown() {
+  closeScanner(); closeSheet();
+  openProductForm(null, lastUnknown, true);
+}
+
+/* ---------- scanner ---------- */
+let h5 = null, scanHandler = null, lastCode = '', lastTime = 0, scanning = false;
+function scanMsg(html, cls) { const m = $('scanMsg'); m.className = 'scan-msg ' + (cls || ''); m.innerHTML = html; }
+
+async function openScanner(handler, title, hint) {
+  scanHandler = handler; lastCode = ''; lastTime = 0;
+  $('scanTitle').textContent = title || 'Scan';
+  $('scanner').hidden = false;
+  $('manual').value = '';
+  scanMsg(hint || 'Point the camera at a barcode or QR code.');
+  if (typeof Html5Qrcode === 'undefined') {
+    scanMsg('The scanner could not load. Type the code below, or use a Bluetooth or USB scanner.', 'bad'); return;
+  }
+  try {
+    const F = Html5QrcodeSupportedFormats;
+    h5 = new Html5Qrcode('reader', {
+      verbose: false, useBarCodeDetectorIfSupported: true,
+      formatsToSupport: [F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.DATA_MATRIX]
+    });
+    await h5.start(
+      { facingMode: 'environment' },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(Math.min(w * .88, 340)), height: Math.floor(Math.min(h * .55, 210)) }) },
+      onScan, () => {}
+    );
+    scanning = true;
+  } catch (e) {
+    scanning = false;
+    scanMsg('Camera is not available (' + esc((e && e.message) || e) + '). Allow camera access in your browser, or type the code below. If this page is embedded, open it in its own browser tab.', 'bad');
+  }
+}
+function onScan(code) {
+  const now = Date.now();
+  if (code === lastCode && now - lastTime < 2000) { lastTime = now; return; }
+  lastCode = code; lastTime = now;
+  if (scanHandler) scanHandler(String(code).trim());
+}
+function manualCode() {
+  const v = $('manual').value.trim(); if (!v) return;
+  $('manual').value = '';
+  if (scanHandler) scanHandler(v);
+}
+async function closeScanner() {
+  $('scanner').hidden = true;
+  const h = h5; h5 = null; scanHandler = null;
+  if (h) { try { if (scanning) await h.stop(); h.clear(); } catch (e) {} }
+  scanning = false;
+}
+function startSellScan() { openScanner(sellScan, 'Scan items', 'Scan as many items as you like, then tap Done.'); }
+function sellScan(code) {
+  const p = findByBarcode(code);
+  if (p) {
+    if (addToCart(p)) { beep(true); scanMsg('Added <b>' + esc(p.name) + '</b> (' + (cart.find(l => l.pid === p.id).qty) + ' on invoice)', 'good'); }
+    else { beep(false); scanMsg('<b>' + esc(p.name) + '</b> has no more stock to sell.', 'bad'); }
+  } else {
+    beep(false); lastUnknown = code;
+    scanMsg('No product with code <b>' + esc(code) + '</b>.<button onclick="addUnknown()">Add as new product</button>', 'bad');
+  }
+}
+
+/* ---------- sheet ---------- */
+function openSheet(html) {
+  $('sheetBody').innerHTML = html;
+  $('backdrop').classList.add('open'); $('sheet').classList.add('open');
+  $('sheet').scrollTop = 0;
+}
+function closeSheet() { $('backdrop').classList.remove('open'); $('sheet').classList.remove('open'); }
+
+/* ---------- stock ---------- */
+function setStockFilter(f) { stockFilter = f; $('fAll').classList.toggle('on', f === 'all'); $('fLow').classList.toggle('on', f === 'low'); renderStock(); }
+function renderStock() {
+  const units = S.products.reduce((s, p) => s + p.qty, 0);
+  const value = S.products.reduce((s, p) => s + p.qty * p.price, 0);
+  const low = S.products.filter(p => p.qty <= (p.low || 0));
+  $('stockStats').innerHTML = `
+    <div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
+    <div class="stat"><div class="v">${units.toLocaleString()}</div><div class="k">Units in stock</div></div>
+    <div class="stat"><div class="v">${money(value)}</div><div class="k">Stock value at selling price</div></div>
+    <div class="stat ${low.length ? 'warn' : ''}"><div class="v">${low.length}</div><div class="k">Low or out of stock</div></div>`;
+  const q = $('sq').value.trim().toLowerCase();
+  let list = S.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q));
+  if (stockFilter === 'low') list = list.filter(p => p.qty <= (p.low || 0));
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  $('stockList').innerHTML = list.length ? list.map(p => {
+    const st = p.qty <= 0 ? 'out' : (p.qty <= (p.low || 0) ? 'low' : 'ok');
+    return `<button class="prow" onclick="openProductForm('${p.id}')">
+      <span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode ? 'Code ' + esc(p.barcode) : 'No code'}</span></span>
+      <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock'}</span></span></button>`;
+  }).join('') : '<div class="empty">' + (S.products.length ? 'No products match.' : 'No products yet. Tap Add product to start your stock list.') + '</div>';
+  refreshChrome();
+}
+function openProductForm(id, code, addAfter) {
+  const p = id ? prod(id) : null; formAddAfter = !!addAfter;
+  const unit = p && p.unit ? p.unit : 'pcs';
+  openSheet(`<h3>${p ? 'Edit product' : 'New product'}</h3>
+    <label>Name (English)<input id="f_name" type="text" value="${esc(p ? p.name : '')}" placeholder="e.g. Basmati Rice 5kg" autocomplete="off"></label>
+    <label>Name (Urdu) <span class="unit-tag">optional</span><input id="f_name_ur" type="text" value="${esc(p ? (p.nameUrdu||'') : '')}" placeholder="مثلاً باسمتی چاول" autocomplete="off"></label>
+    <label>Name (Pashto) <span class="unit-tag">optional</span><input id="f_name_ps" type="text" value="${esc(p ? (p.namePashto||'') : '')}" placeholder="مثلاً باسمتي وريجې" autocomplete="off"></label>
+    <label>Barcode / code <span class="unit-tag">optional</span>
+      <div class="row"><input id="f_code" type="text" value="${esc(p ? p.barcode : (code || ''))}" placeholder="Leave empty if no barcode" autocomplete="off"><button class="btn" onclick="scanInto()">Scan</button></div>
+    </label>
+    <div class="grid2">
+      <label>Selling price<input id="f_price" type="number" inputmode="decimal" min="0" step="0.01" value="${p ? p.price : ''}"></label>
+      <label>Unit
+        <select id="f_unit">
+          <option value="pcs" ${unit==='pcs'?'selected':''}>Piece</option>
+          <option value="kg" ${unit==='kg'?'selected':''}>Kg</option>
+          <option value="g" ${unit==='g'?'selected':''}>Gram</option>
+          <option value="ltr" ${unit==='ltr'?'selected':''}>Liter</option>
+          <option value="dozen" ${unit==='dozen'?'selected':''}>Dozen</option>
+          <option value="pack" ${unit==='pack'?'selected':''}>Pack</option>
+          <option value="box" ${unit==='box'?'selected':''}>Box</option>
+        </select>
+      </label>
+    </div>
+    <label>Quantity in stock<input id="f_qty" type="number" inputmode="decimal" min="0" step="0.01" value="${p ? p.qty : ''}"></label>
+    <label>Low stock warning<input id="f_low" type="number" inputmode="decimal" min="0" step="0.01" value="${p ? (p.low || 0) : 5}"></label>
+    <div class="small-help">Barcode is optional. You can sell this item by searching its name.</div>
+    <div class="err" id="f_err"></div>
+    <div class="actions">
+      <button class="btn primary" onclick="saveProduct('${id || ''}')">Save product</button>
+      ${p ? `<button class="btn danger" onclick="confirmTap(this,()=>delProduct('${id}'))">Delete</button>` : ''}
+      <button class="btn ghost" onclick="closeSheet()">Cancel</button>
+    </div>`);
+}
+function scanInto() {
+  openScanner(code => { $('f_code').value = code; beep(true); closeScanner(); }, 'Scan product code', 'Scan the barcode or QR code on the product.');
+}
+function saveProduct(id) {
+  const err = m => { $('f_err').textContent = m; };
+  const name = $('f_name').value.trim(), code = $('f_code').value.trim();
+  const priceRaw = $('f_price').value, qtyRaw = $('f_qty').value;
+  if (!name) return err('Enter a product name.');
+  if (priceRaw === '' || +priceRaw < 0) return err('Enter a selling price.');
+  if (qtyRaw === '' || +qtyRaw < 0) return err('Enter the quantity in stock (0 or more).');
+  const dup = code && S.products.find(x => x.id !== id && x.barcode && norm(x.barcode) === norm(code));
+  if (dup) return err('This code already belongs to ' + dup.name + '.');
+  const data = { name, barcode: code, price: r2(priceRaw), qty: Math.floor(+qtyRaw), low: Math.max(0, Math.floor(+$('f_low').value || 0)) };
+  let p;
+  if (id) { p = prod(id); Object.assign(p, data); }
+  else { p = Object.assign({ id: uid(), sold: 0 }, data); S.products.push(p); }
+  save(); closeSheet();
+  toast(id ? 'Product updated' : 'Product added');
+  if (formAddAfter) { formAddAfter = false; if (addToCart(p)) toast(p.name + ' added to invoice'); }
+  if (view === 'stock') renderStock();
+  refreshChrome();
+}
+function delProduct(id) {
+  S.products = S.products.filter(p => p.id !== id);
+  cart = cart.filter(l => l.pid !== id);
+  save(); closeSheet(); renderCart(); renderStock(); toast('Product deleted');
+}
+
+/* ---------- invoices ---------- */
+function setInvFilter(f) { invFilter = f; $('iAll').classList.toggle('on', f === 'all'); $('iDue').classList.toggle('on', f === 'due'); renderInv(); }
+function renderInv() {
+  const tToday = S.invoices.filter(i => isToday(i.at));
+  const salesToday = tToday.reduce((s, i) => s + i.total, 0);
+  let collected = 0;
+  S.invoices.forEach(i => i.payments.forEach(p => { if (isToday(p.at)) collected += p.amt; }));
+  const outstanding = S.invoices.reduce((s, i) => s + invDue(i), 0);
+  $('invStats').innerHTML = `
+    <div class="stat"><div class="v">${money(salesToday)}</div><div class="k">Sales today (${tToday.length} invoice${tToday.length === 1 ? '' : 's'})</div></div>
+    <div class="stat"><div class="v">${money(collected)}</div><div class="k">Collected today</div></div>
+    <div class="stat ${outstanding > 0 ? 'warn' : ''}" style="grid-column:span 2"><div class="v">${money(outstanding)}</div><div class="k">Total still owed by customers</div></div>`;
+  const q = $('iq').value.trim().toLowerCase();
+  let list = S.invoices.filter(i => !q || i.no.toLowerCase().includes(q) || (i.customer || '').toLowerCase().includes(q));
+  if (invFilter === 'due') list = list.filter(i => invDue(i) > 0.004);
+  $('invList').innerHTML = list.length ? list.map(i => {
+    const st = invStatus(i), due = invDue(i);
+    return `<button class="irow" onclick="showInvoice('${i.id}')">
+      <span><span class="n">${esc(i.no)}${i.customer ? ' for ' + esc(i.customer) : ''}</span><br><span class="s">${fmtDate(i.at)}</span></span>
+      <span class="right"><b>${money(i.total)}</b><br><span class="pill ${st}">${statusLabel[st]}${due > 0.004 ? ', ' + money(due) + ' due' : ''}</span></span></button>`;
+  }).join('') : '<div class="empty">' + (S.invoices.length ? 'No invoices match.' : 'No invoices yet. Saved sales appear here.') + '</div>';
+  refreshChrome();
+}
+function showInvoice(id) {
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const paid = invPaid(inv), due = invDue(inv);
+  openSheet(`<div class="receipt">
+      <div class="r-shop">${esc(S.settings.shop)}</div>
+      <div class="r-meta">${esc(inv.no)}</div>
+      <div class="r-meta">${fmtDate(inv.at)}</div>
+      ${inv.customer ? `<div class="r-meta">Customer: ${esc(inv.customer)}</div>` : ''}
+      <table class="r-items">${inv.items.map(l => `<tr><td>${esc(l.name)}<br><small>${l.qty} x ${num(l.price)}</small></td><td>${num(l.qty * l.price)}</td></tr>`).join('')}</table>
+      <div class="r-sum">
+        <div class="r"><span>Subtotal</span><span>${money(inv.subtotal)}</span></div>
+        ${inv.discount > 0 ? `<div class="r"><span>Discount</span><span>- ${money(inv.discount)}</span></div>` : ''}
+        <div class="r big"><span>Total</span><span>${money(inv.total)}</span></div>
+        <div class="r"><span>Paid</span><span>${money(paid)}</span></div>
+        <div class="r"><span><b>Balance due</b></span><span><b>${money(due)}</b></span></div>
+      </div>
+      ${inv.payments.length ? `<div class="r-pay">${inv.payments.map(p => `<div><span>Payment on ${fmtDate(p.at)}</span><span>${money(p.amt)}</span></div>`).join('')}</div>` : ''}
+    </div>
+    ${due > 0.004 ? `<div class="paybox no-print">
+      <label style="margin:0">Record a payment
+        <div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">Add payment</button></div>
+      </label></div>` : ''}
+    <div class="actions no-print"><button class="btn primary" onclick="window.print()">Print receipt</button><button class="btn ghost" onclick="closeSheet()">Close</button></div>`);
+}
+function addPayment(id) {
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const amt = r2($('pay_amt').value), due = invDue(inv);
+  if (!(amt > 0)) { toast('Enter a payment amount'); return; }
+  if (amt > due + 0.004) { toast('That is more than the ' + money(due) + ' still due'); return; }
+  inv.payments.push({ amt, at: new Date().toISOString() });
+  save(); showInvoice(id); renderInv(); refreshChrome();
+  toast(invDue(inv) <= 0.004 ? inv.no + ' is fully paid' : 'Payment recorded');
+}
+
+/* ---------- settings ---------- */
+function openSettings() {
+  openSheet(`<h3>Settings</h3>
+    <label>Shop name<input id="st_shop" type="text" value="${esc(S.settings.shop)}"></label>
+    <label>Currency symbol<input id="st_cur" type="text" maxlength="6" value="${esc(S.settings.cur)}"></label>
+    <div class="actions"><button class="btn primary" onclick="saveSettings()">Save settings</button><button class="btn ghost" onclick="closeSheet()">Cancel</button></div>
+    <div class="card" style="margin-top:16px">
+      <b>Reset everything</b>
+      <p style="color:var(--muted);margin:6px 0 10px">Deletes all products and invoices on this device and restores the sample stock list.</p>
+      <button class="btn danger" onclick="confirmTap(this,resetAll)">Reset all data</button>
+    </div>`);
+}
+function saveSettings() {
+  S.settings.shop = $('st_shop').value.trim() || 'Shaheen Mart';
+  S.settings.cur = $('st_cur').value.trim() || 'Rs.';
+  save(); closeSheet(); renderCart(); go(view); toast('Settings saved');
+}
+function resetAll() {
+  S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
+  seed(); save(); cart = []; clearCart(); closeSheet(); go('sell'); toast('Data reset');
+}
+
+
+/* ---------- Shaheen Mart simple upgrade layer ---------- */
+const LANG = {
+  en: {
+    sell:"Sell", stock:"Stock", invoices:"Invoices", settings:"Settings",
+    scan:"Scan item", scanHint:"Barcode or QR code adds it to the invoice",
+    search:"Search item by name or code", newInvoice:"New invoice", clear:"Clear all",
+    customer:"Customer name (optional)", walkin:"Walk-in customer", discount:"Discount",
+    received:"Amount received", full:"Paid in full", later:"Pay later", subtotal:"Subtotal",
+    total:"Total", due:"Balance due", saveInvoice:"Save invoice", addProduct:"Add product",
+    all:"All items", low:"Low or out of stock", searchProducts:"Search products",
+    searchInvoices:"Search invoice number or customer", allInvoices:"All invoices",
+    balance:"Balance due", shop:"Shop name", currency:"Currency symbol", language:"Language",
+    logo:"Shop logo", upload:"Choose logo", remove:"Remove logo", save:"Save settings",
+    reset:"Reset everything", noItems:"No items yet. Scan or search above.",
+    barcode:"Barcode / code", optional:"optional", unit:"Unit", qty:"Quantity in stock",
+    price:"Selling price", warning:"Low stock warning", piece:"Piece", kg:"Kg", gram:"Gram",
+    liter:"Liter", dozen:"Dozen", pack:"Pack", box:"Box", print:"Print receipt",
+    pdf:"Export PDF", whatsapp:"WhatsApp", close:"Close", payment:"Record a payment",
+    add:"Add payment", quick:"Quick item / no barcode", name:"Item name", share:"Share invoice",
+    paid:"Paid", part:"Part paid", unpaid:"Unpaid"
+  },
+  ur: {
+    sell:"فروخت", stock:"اسٹاک", invoices:"انوائسز", settings:"ترتیبات",
+    scan:"آئٹم اسکین کریں", scanHint:"بارکوڈ یا QR اسکین کریں",
+    search:"نام یا کوڈ سے آئٹم تلاش کریں", newInvoice:"نئی رسید", clear:"سب صاف کریں",
+    customer:"گاہک کا نام (اختیاری)", walkin:"عام گاہک", discount:"رعایت",
+    received:"وصول شدہ رقم", full:"مکمل ادائیگی", later:"بعد میں ادائیگی", subtotal:"کل رقم",
+    total:"مجموعی رقم", due:"باقی رقم", saveInvoice:"انوائس محفوظ کریں", addProduct:"آئٹم شامل کریں",
+    all:"تمام آئٹمز", low:"کم یا ختم اسٹاک", searchProducts:"آئٹم تلاش کریں",
+    searchInvoices:"انوائس نمبر یا گاہک تلاش کریں", allInvoices:"تمام انوائسز",
+    balance:"باقی رقم", shop:"دکان کا نام", currency:"کرنسی", language:"زبان",
+    logo:"دکان کا لوگو", upload:"لوگو منتخب کریں", remove:"لوگو ہٹائیں", save:"ترتیبات محفوظ کریں",
+    reset:"تمام ڈیٹا ختم کریں", noItems:"ابھی کوئی آئٹم نہیں۔ اسکین یا تلاش کریں۔",
+    barcode:"بارکوڈ / کوڈ", optional:"اختیاری", unit:"یونٹ", qty:"اسٹاک مقدار",
+    price:"فروخت قیمت", warning:"کم اسٹاک کی حد", piece:"عدد", kg:"کلو", gram:"گرام",
+    liter:"لیٹر", dozen:"درجن", pack:"پیک", box:"باکس", print:"رسید پرنٹ",
+    pdf:"PDF بنائیں", whatsapp:"واٹس ایپ", close:"بند کریں", payment:"ادائیگی درج کریں",
+    add:"ادائیگی شامل کریں", quick:"فوری آئٹم / بغیر بارکوڈ", name:"آئٹم کا نام", share:"انوائس شیئر",
+    paid:"ادا شدہ", part:"جزوی ادا", unpaid:"غیر ادا شدہ"
+  },
+  ps: {
+    sell:"خرڅلاو", stock:"سټاک", invoices:"انوائسونه", settings:"ترتیبات",
+    scan:"توکی سکین کړئ", scanHint:"بارکوډ یا QR کوډ سکین کړئ",
+    search:"د نوم یا کوډ له لارې توکی ولټوئ", newInvoice:"نوې رسید", clear:"ټول پاک کړئ",
+    customer:"د پیرودونکي نوم (اختیاري)", walkin:"عام پیرودونکی", discount:"تخفیف",
+    received:"ترلاسه شوې پیسې", full:"بشپړه تادیه", later:"وروسته تادیه", subtotal:"ټوله بیه",
+    total:"مجموعي بیه", due:"پاتې پیسې", saveInvoice:"انوائس خوندي کړئ", addProduct:"توکی اضافه کړئ",
+    all:"ټول توکي", low:"کم یا ختم سټاک", searchProducts:"توکي ولټوئ",
+    searchInvoices:"د انوائس نمبر یا پیرودونکي لټون", allInvoices:"ټول انوائسونه",
+    balance:"پاتې پیسې", shop:"د دوکان نوم", currency:"کرنسي", language:"ژبه",
+    logo:"د دوکان لوګو", upload:"لوګو وټاکئ", remove:"لوګو لرې کړئ", save:"ترتیبات خوندي کړئ",
+    reset:"ټول معلومات پاک کړئ", noItems:"تر اوسه توکي نشته. سکین یا لټون وکړئ.",
+    barcode:"بارکوډ / کوډ", optional:"اختیاري", unit:"واحد", qty:"په سټاک کې مقدار",
+    price:"د خرڅلاو بیه", warning:"د کم سټاک حد", piece:"ټوټه", kg:"کیلو", gram:"ګرام",
+    liter:"لیټر", dozen:"درجن", pack:"پیک", box:"بکس", print:"رسید چاپ",
+    pdf:"PDF جوړ کړئ", whatsapp:"واټس اپ", close:"بند", payment:"تادیه ثبت کړئ",
+    add:"تادیه اضافه کړئ", quick:"چټک توکی / بې بارکوډ", name:"د توکي نوم", share:"انوائس شریک کړئ",
+    paid:"ادا شوی", part:"نیمه ادا", unpaid:"ناادا"
+  }
+};
+
+
+Object.assign(LANG.en,{
+  invoiceTitle:"SALES INVOICE", date:"Date", memo:"Memo No.", billedTo:"Billed To",
+  phone:"Phone", description:"Description", qty:"Qty", unitPrice:"Price", amount:"Amount",
+  stamp:"SELLER'S STAMP & SIGN", paidLabel:"Paid", change:"Change Due", thank:"Thank you for shopping with us",
+  notes:"Notes", cashier:"Cashier"
+});
+Object.assign(LANG.ur,{
+  invoiceTitle:"فروخت کی رسید", date:"تاریخ", memo:"میمو نمبر", billedTo:"خریدار کا نام",
+  phone:"فون", description:"تفصیل", qty:"مقدار", unitPrice:"قیمت", amount:"رقم",
+  stamp:"فروخت کنندہ کی مہر اور دستخط", paidLabel:"وصول شدہ", change:"واپس رقم", thank:"ہم سے خریداری کا شکریہ",
+  notes:"نوٹس", cashier:"کیشئر"
+});
+Object.assign(LANG.ps,{
+  invoiceTitle:"د خرڅلاو رسید", date:"نېټه", memo:"میمو نمبر", billedTo:"پیرودونکی",
+  phone:"ټیلیفون", description:"تفصیل", qty:"مقدار", unitPrice:"بیه", amount:"مبلغ",
+  stamp:"د پلورونکي مهر او لاسلیک", paidLabel:"ادا شوې", change:"باقي/واپس پیسې", thank:"له موږ څخه د پیرودنې مننه",
+  notes:"یادښت", cashier:"کیشیر"
+});
+function invText(k){return (LANG[S.settings.lang||'en']||LANG.en)[k]||LANG.en[k]||k;}
+
+function t(k){ return (LANG[S.settings.lang || 'en'] || LANG.en)[k] || LANG.en[k] || k; }
+function applyLang(){
+  const l=S.settings.lang||'en';
+  document.documentElement.lang=l==='ur'?'ur':(l==='ps'?'ps':'en');
+  document.body.classList.toggle('rtl', l!=='en');
+  const map={
+    'n-sell':t('sell'),'n-stock':t('stock'),'n-inv':t('invoices'),
+    'fAll':t('all'),'fLow':t('low'),'iAll':t('allInvoices'),'iDue':t('balance')
+  };
+  Object.entries(map).forEach(([id,v])=>{if($(id)) $(id).childNodes[0].nodeValue=v;});
+  const q=$('q'); if(q) q.placeholder=t('search');
+  const sq=$('sq'); if(sq) sq.placeholder=t('searchProducts');
+  const iq=$('iq'); if(iq) iq.placeholder=t('searchInvoices');
+  const shopSub=document.querySelector('.brand-sub'); if(shopSub) shopSub.textContent=l==='en'?'Point of sale':(l==='ur'?'سیل پوائنٹ':'د خرڅلاو سیستم');
+  const scan=document.querySelector('.scan-btn span'); if(scan){scan.childNodes[0].nodeValue=t('scan'); scan.querySelector('small').textContent=t('scanHint');}
+  const h2=document.querySelector('#v-sell .sec-h h2'); if(h2) h2.textContent=t('newInvoice');
+  const clear=$('clearBtn'); if(clear) clear.textContent=t('clear');
+  const addBtn=document.querySelector('#v-stock .btn.primary'); if(addBtn) addBtn.textContent=t('addProduct');
+  const saveBtn=document.querySelector('#saveBar .btn.primary'); if(saveBtn) saveBtn.textContent=t('saveInvoice');
+}
+function refreshChrome(){
+  $('shopName').textContent=S.settings.shop;
+  document.title=S.settings.shop+' POS';
+  const todaySales=S.invoices.filter(i=>isToday(i.at)).reduce((s,i)=>s+i.total,0);
+  $('hdrToday').textContent=money(todaySales);
+  const low=S.products.filter(p=>p.qty<=(p.low||0)).length;
+  $('lowBadge').hidden=!low; $('lowBadge').textContent=low;
+  const dueCount=S.invoices.filter(i=>invDue(i)>0.004).length;
+  $('dueBadge').hidden=!dueCount; $('dueBadge').textContent=dueCount;
+  $('saveBar').hidden=!(view==='sell'&&cart.length);
+  applyLang();
+}
+function unitName(u){
+  return ({pcs:t('piece'),kg:t('kg'),g:t('gram'),ltr:t('liter'),dozen:t('dozen'),pack:t('pack'),box:t('box')})[u]||u||t('piece');
+}
+function addToCart(p,n){
+  n = n==null ? 1 : +n;
+  if(!(n>0)) n=1;
+  const line=cart.find(l=>l.pid===p.id), have=line?line.qty:0;
+  if(have+n>p.qty+0.0001){toast(p.qty<=0?p.name+' is out of stock':'Only '+p.qty+' of '+p.name+' in stock');return false;}
+  if(line) line.qty=r2(line.qty+n);
+  else cart.push({pid:p.id,name:p.name,barcode:p.barcode,price:p.price,qty:r2(n),unit:p.unit||'pcs'});
+  renderCart(); return true;
+}
+function chg(i,d){
+  const l=cart[i],p=prod(l.pid); if(!l)return;
+  const step=(l.unit&&l.unit!=='pcs')?0.1:1;
+  const nq=r2(l.qty+d*step);
+  if(nq<step/2){rm(i);return;}
+  if(!p||nq>p.qty+0.0001){toast('Only '+(p?p.qty:0)+' in stock');return;}
+  l.qty=nq;renderCart();
+}
+function setQty(i,v){
+  const l=cart[i],p=prod(l.pid); let n=r2(+v);
+  if(!(n>0)) n=l&&l.unit!=='pcs'?0.1:1;
+  if(p&&n>p.qty){n=p.qty;toast('Only '+p.qty+' in stock');}
+  l.qty=r2(n);renderCart();
+}
+function renderCart(){
+  const el=$('cartList');
+  if(!cart.length){el.innerHTML='<div class="empty">'+t('noItems')+'</div>';}
+  else el.innerHTML=cart.map((l,i)=>{
+    const p=prod(l.pid),left=p?r2(p.qty-l.qty):0;
+    return `<div class="line">
+      <div class="l-main"><div class="l-name">${esc(l.name)}</div><div class="l-sub">${money(l.price)} / ${unitName(l.unit)} · ${left} left</div></div>
+      <div class="stepper"><button onclick="chg(${i},-1)">−</button><input type="number" inputmode="decimal" min="0.01" step="${l.unit==='pcs'?1:.1}" value="${l.qty}" onchange="setQty(${i},this.value)"><button onclick="chg(${i},1)">+</button></div>
+      <div class="l-total">${money(l.price*l.qty)}</div><button class="x" onclick="rm(${i})">×</button>
+    </div>`;
+  }).join('');
+  $('payCard').hidden=!cart.length;$('clearBtn').hidden=!cart.length;updateTotals();
+}
+function saveProduct(id){
+  const err=m=>{$('f_err').textContent=m;};
+  const name=$('f_name').value.trim(),code=$('f_code').value.trim();
+  const priceRaw=$('f_price').value,qtyRaw=$('f_qty').value,unit=$('f_unit').value;
+  if(!name)return err('Enter a product name.');
+  if(priceRaw===''||+priceRaw<0)return err('Enter a selling price.');
+  if(qtyRaw===''||+qtyRaw<0)return err('Enter stock quantity.');
+  const dup=code&&S.products.find(x=>x.id!==id&&x.barcode&&norm(x.barcode)===norm(code));
+  if(dup)return err('This code already belongs to '+dup.name+'.');
+  const data={name, nameUrdu:($('f_name_ur')?.value||'').trim(), namePashto:($('f_name_ps')?.value||'').trim(), barcode:code,price:r2(priceRaw),qty:r2(qtyRaw),unit,low:Math.max(0,r2($('f_low').value||0))};
+  let p;
+  if(id){p=prod(id);Object.assign(p,data);}
+  else{p=Object.assign({id:uid(),sold:0},data);S.products.push(p);}
+  save();closeSheet();toast(id?'Product updated':'Product added');
+  if(formAddAfter){formAddAfter=false;if(addToCart(p))toast(p.name+' added to invoice');}
+  if(view==='stock')renderStock();refreshChrome();
+}
+function renderStock(){
+  const units=S.products.reduce((s,p)=>s+(+p.qty||0),0);
+  const value=S.products.reduce((s,p)=>s+(+p.qty||0)*(+p.price||0),0);
+  const low=S.products.filter(p=>(+p.qty||0)<=(p.low||0));
+  $('stockStats').innerHTML=`<div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
+    <div class="stat"><div class="v">${units.toLocaleString()}</div><div class="k">Units in stock</div></div>
+    <div class="stat"><div class="v">${money(value)}</div><div class="k">Stock value</div></div>
+    <div class="stat ${low.length?'warn':''}"><div class="v">${low.length}</div><div class="k">${t('low')}</div></div>`;
+  const q=$('sq').value.trim().toLowerCase();
+  let list=S.products.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.barcode||'').toLowerCase().includes(q));
+  if(stockFilter==='low')list=list.filter(p=>(+p.qty||0)<=+(p.low||0));
+  list.sort((a,b)=>a.name.localeCompare(b.name));
+  $('stockList').innerHTML=list.length?list.map(p=>{
+    const st=p.qty<=0?'out':(p.qty<=+(p.low||0)?'low':'ok');
+    return `<button class="prow" onclick="openProductForm('${p.id}')"><span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode?'Code '+esc(p.barcode):'No barcode'} · ${unitName(p.unit)}</span></span>
+    <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty<=0?'Out of stock':p.qty+' '+unitName(p.unit)}</span></span></button>`;
+  }).join(''):'<div class="empty">No products match.</div>';
+  refreshChrome();
+}
+function searchProducts(t0){
+  const t1=String(t0||'').toLowerCase();
+  return S.products.filter(p=>p.name.toLowerCase().includes(t1)||(p.barcode||'').toLowerCase().includes(t1)).slice(0,10);
+}
+function onQ(){
+  const v=$('q').value.trim(),box=$('results'); if(!v){box.innerHTML='';return;}
+  const m=searchProducts(v);
+  box.innerHTML=m.map(p=>`<button class="res" ${p.qty<=0?'disabled':''} onclick="pickResult('${p.id}')"><span><span class="p">${esc(p.name)}</span><br><small>${p.qty} ${unitName(p.unit)}</small></span><b>${money(p.price)}</b></button>`).join('');
+}
+function enterQ(){
+  const v=$('q').value.trim();if(!v)return;
+  const p=findByBarcode(v);
+  if(p){if(addToCart(p)){beep(true);$('q').value='';onQ();}return;}
+  const m=searchProducts(v);
+  if(m.length===1){pickResult(m[0].id);return;}
+  if(!m.length){lastUnknown=v;$('results').innerHTML=`<div class="notfound">Nothing matches <b>${esc(v)}</b>.<br><button class="btn primary" onclick="addUnknown()">${t('quick')}</button></div>`;}
+}
+function addUnknown(){openProductForm(null,lastUnknown,true);}
+function saveInvoice(){
+  if(!cart.length){toast('Add at least one item');return;}
+  for(const l of cart){const p=prod(l.pid);if(!p){toast(l.name+' is no longer in stock');return;}if(p.qty<l.qty){toast('Only '+p.qty+' of '+p.name+' left');return;}}
+  const t0=totals(),now=new Date().toISOString();
+  cart.forEach(l=>{const p=prod(l.pid);p.qty=r2(p.qty-l.qty);p.sold=r2((p.sold||0)+l.qty);});
+  const inv={id:uid(),no:'INV-'+String(S.settings.next).padStart(4,'0'),at:now,customer:$('custName').value.trim(),customerPhone:($('custPhone')?.value||'').trim(),
+    items:cart.map(l=>({pid:l.pid,name:l.name,barcode:l.barcode,price:l.price,qty:l.qty,unit:l.unit||'pcs'})),
+    subtotal:t0.sub,discount:t0.disc,total:t0.total,payments:t0.paid>0?[{amt:t0.paid,at:now}]:[]};
+  S.settings.next++;S.invoices.unshift(inv);save();clearCart();go('sell');toast(inv.no+' saved, stock updated');showInvoice(inv.id);
+}
+
+function invoiceItemName(l){
+  const p=prod(l.pid);
+  const lang=S.settings.lang||'en';
+  if(p){
+    if(lang==='ur' && p.nameUrdu) return p.nameUrdu;
+    if(lang==='ps' && p.namePashto) return p.namePashto;
+  }
+  return l.name;
+}
+function receiptHTML(inv){
+  const paid=invPaid(inv),due=invDue(inv);
+  const lang=S.settings.lang||'en', rtl=lang!=='en';
+  const logo=S.settings.logo?`<img class="invoice-logo" src="${S.settings.logo}">`:'';
+  const change=Math.max(0,paid-inv.total);
+  const items=inv.items.map(l=>`<tr>
+    <td class="desc">${esc(invoiceItemName(l))}${(l.name!==invoiceItemName(l))?`<br><small>${esc(l.name)}</small>`:''}</td>
+    <td class="num">${l.qty} ${unitName(l.unit)}</td>
+    <td class="num">${money(l.price)}</td>
+    <td class="amt">${money(l.price*l.qty)}</td>
+  </tr>`).join('');
+  return `<div class="invoice-paper ${rtl?'invoice-rtl':''}" id="pdfReceipt">
+    <div class="invoice-head">
+      <div class="invoice-brand">
+        ${logo}
+        <div class="invoice-shop">${esc(S.settings.shop)}</div>
+        ${S.settings.address?`<div class="invoice-sub">${esc(S.settings.address)}</div>`:''}
+        ${S.settings.phone?`<div class="invoice-sub">${esc(S.settings.phone)}</div>`:''}
+        <div style="font-size:16px;font-weight:800;margin-top:8px">${invText('invoiceTitle')}</div>
+      </div>
+      <div class="stamp-box">${invText('stamp')}<div class="stamp-space"></div></div>
+    </div>
+
+    <div class="invoice-divider"></div>
+
+    <div class="invoice-info">
+      <div class="info-cell"><span class="info-label">${invText('date')}:</span>${fmtDate(inv.at)}</div>
+      <div class="info-cell"><span class="info-label">${invText('memo')}:</span>${esc(inv.no)}</div>
+      <div class="info-cell"><span class="info-label">${invText('billedTo')}:</span>${esc(inv.customer||t('walkin'))}</div>
+      <div class="info-cell"><span class="info-label">${invText('phone')}:</span>${esc(inv.customerPhone||'—')}</div>
+    </div>
+
+    <table class="invoice-table">
+      <thead><tr>
+        <th class="desc">${invText('description')}</th>
+        <th class="num">${invText('qty')}</th>
+        <th class="num">${invText('unitPrice')}</th>
+        <th class="amt">${invText('amount')}</th>
+      </tr></thead>
+      <tbody>${items}</tbody>
+    </table>
+
+    <div class="invoice-bottom">
+      <div class="invoice-notes">
+        <b>${invText('notes')}</b><br><br>
+        ${S.settings.shop} · ${invText('thank')}
+      </div>
+      <div class="invoice-totals">
+        <div class="total-row"><span>${t('subtotal')}</span><span>${money(inv.subtotal)}</span></div>
+        <div class="total-row"><span>${t('discount')}</span><span>${money(inv.discount||0)}</span></div>
+        <div class="total-row grand"><span>${t('total')}</span><span>${money(inv.total)}</span></div>
+      </div>
+    </div>
+
+    <div class="invoice-foot">
+      <div class="foot-box"><b>${invText('paidLabel')}:</b> ${money(paid)}</div>
+      <div class="foot-box"><b>${invText('change')}:</b> ${money(change)}</div>
+    </div>
+  </div>`;
+}
+function showInvoice(id){
+  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
+  const paid=invPaid(inv),due=invDue(inv);
+  openSheet(receiptHTML(inv)+`
+    ${due>0.004?`<div class="paybox no-print"><label style="margin:0">${t('payment')}<div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">${t('add')}</button></div></label></div>`:''}
+    <div class="invoice-actions no-print">
+      <button class="btn primary" onclick="printInvoice('${inv.id}')">🖨️ ${invText('print')}</button>
+      <button class="btn" onclick="exportInvoiceJPG('${inv.id}',false)">🖼️ JPG</button>
+      <button class="btn" onclick="exportInvoiceJPG('${inv.id}',true)">📤 ${invText('whatsapp')}</button>
+      <button class="btn ghost" onclick="closeSheet()">✕ ${t('close')}</button>
+    </div>`);
+}
+async function exportInvoiceJPG(id,share){
+  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
+  const node=document.createElement('div');
+  node.style.cssText='position:fixed;left:-10000px;top:0;width:760px;background:#fff;padding:0';
+  node.innerHTML=receiptHTML(inv);
+  document.body.appendChild(node);
+  try{
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#fff',useCORS:true});
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
+    const file=new File([blob],inv.no+'.jpg',{type:'image/jpeg'});
+    if(share && navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
+      await navigator.share({title:inv.no,text:S.settings.shop+' - '+inv.no,files:[file]});
+      toast('Share opened — select WhatsApp');
+    }else{
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=inv.no+'.jpg';a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+      toast(share?'JPG saved. Open WhatsApp and attach it.':'JPG exported');
+    }
+  }catch(e){toast('JPG export failed');}
+  finally{node.remove();}
+}
+function printInvoice(id){
+  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
+  const w=window.open('','_blank');
+  if(!w){window.print();return;}
+  w.document.write(`<html><head><title>${esc(inv.no)}</title><style>
+  body{font-family:Arial,sans-serif;background:#eee;margin:0;padding:20px}
+  .invoice-paper{width:760px;max-width:100%;margin:auto;background:#fff;color:#111;border:1.5px solid #222;padding:24px;box-sizing:border-box}
+  .invoice-head{display:grid;grid-template-columns:1fr 190px;gap:18px;min-height:145px}.invoice-brand{text-align:center}.invoice-logo{max-width:150px;max-height:82px;object-fit:contain;margin:0 auto 8px;display:block}.invoice-shop{font-size:25px;font-weight:900}.invoice-sub{font-size:13px}.stamp-box{border:1.5px solid #222;border-radius:12px;height:120px;padding:10px;text-align:center;font-weight:700}.stamp-space{height:82px}.invoice-divider{border-top:2px solid #222;margin:12px 0}.invoice-info{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #222;border-bottom:1px solid #222}.info-cell{padding:9px 10px;border-bottom:1px solid #222}.info-cell:nth-child(odd){border-right:1px solid #222}.info-label{font-weight:800;margin-right:8px}.invoice-table{width:100%;border-collapse:collapse;margin-top:12px}.invoice-table th,.invoice-table td{border:1px solid #222;padding:9px 8px}.invoice-table th{background:#f5f5f5}.desc{text-align:left}.num{text-align:center}.amt{text-align:right}.invoice-bottom{display:grid;grid-template-columns:1fr 300px}.invoice-notes{border-left:1px solid #222;border-bottom:1px solid #222;min-height:130px;padding:12px}.invoice-totals{border-right:1px solid #222;border-bottom:1px solid #222}.total-row{display:grid;grid-template-columns:1fr 125px;border-bottom:1px solid #222}.total-row span{padding:8px 10px}.total-row span:last-child{text-align:right;border-left:1px solid #222}.total-row.grand{font-size:18px;font-weight:900}.invoice-foot{display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #222;margin-top:14px}.foot-box{padding:10px;border-right:1px solid #222}.invoice-rtl{direction:rtl}.invoice-rtl .desc{text-align:right}.invoice-rtl .amt{text-align:left}
+  @media print{body{background:#fff;padding:0}.invoice-paper{border:0;width:100%}}
+  </style></head><body>${receiptHTML(inv)}</body></html>`);
+  w.document.close();w.focus();setTimeout(()=>w.print(),300);
+}
+
+function openSettings(){
+  const logo=S.settings.logo||'';
+  openSheet(`<h3>${t('settings')}</h3>
+    <label>${t('shop')}<input id="st_shop" type="text" value="${esc(S.settings.shop)}"></label>
+    <label>Phone / WhatsApp<input id="st_phone" type="text" value="${esc(S.settings.phone||'')}"></label>
+    <label>Address<input id="st_address" type="text" value="${esc(S.settings.address||'')}"></label>
+    <label>${t('currency')}<input id="st_cur" type="text" maxlength="8" value="${esc(S.settings.cur)}"></label>
+    <label>${t('language')}</label>
+    <div class="lang-grid">
+      <button class="lang-btn ${S.settings.lang==='en'?'on':''}" onclick="setLang('en')">English</button>
+      <button class="lang-btn ${S.settings.lang==='ur'?'on':''}" onclick="setLang('ur')">اردو</button>
+      <button class="lang-btn ${S.settings.lang==='ps'?'on':''}" onclick="setLang('ps')">پښتو</button>
+    </div>
+    <label style="margin-top:14px">${t('logo')}</label>
+    <div class="logo-preview">${logo?`<img src="${logo}">`:'No logo'}</div>
+    <div class="logo-upload"><input id="logoFile" type="file" accept="image/*" onchange="readLogo(this)"><button class="btn" onclick="removeLogo()">${t('remove')}</button></div>
+    <div class="actions"><button class="btn primary" onclick="saveSettings()">✓ ${t('save')}</button><button class="btn ghost" onclick="closeSheet()">${t('close')}</button></div>
+    <div class="card" style="margin-top:16px"><b>${t('reset')}</b><p style="color:var(--muted);margin:6px 0 10px">Deletes all products and invoices on this device.</p><button class="btn danger" onclick="confirmTap(this,resetAll)">Reset all data</button></div>`);
+}
+function setLang(l){S.settings.lang=l;save();closeSheet();applyLang();renderCart();if(view==='stock')renderStock();if(view==='inv')renderInv();openSettings();}
+function readLogo(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>800000){toast('Please use a logo smaller than 800 KB');return;}
+  const r=new FileReader();r.onload=()=>{S.settings.logo=r.result;save();openSettings();};r.readAsDataURL(f);
+}
+function removeLogo(){S.settings.logo='';save();openSettings();}
+function saveSettings(){
+  S.settings.shop=$('st_shop').value.trim()||'Shaheen Mart';
+  S.settings.phone=$('st_phone').value.trim();
+  S.settings.address=$('st_address').value.trim();
+  S.settings.cur=$('st_cur').value.trim()||'Rs.';
+  save();closeSheet();renderCart();go(view);toast('Settings saved');
+}
+function addQuickItem(){
+  const name=prompt(t('name'));if(!name)return;
+  const price=+prompt(t('price'),'0');if(!(price>=0))return;
+  const p={id:uid(),name,barcode:'',price:r2(price),qty:999999,low:0,unit:'pcs',sold:0,quick:true};
+  S.products.push(p);save();addToCart(p,1);toast(name+' added');
+}
+
+/* Migration for old files */
+S.settings=Object.assign({shop:'Shaheen Mart',cur:'Rs.',next:1,lang:'en',logo:'',phone:'',address:''},S.settings||{});
+S.products.forEach(p=>{p.unit=p.unit||'pcs';});
+applyLang();
+
+/* ---------- init ---------- */
+if (!load()) { seed(); save(); }
+renderCart();
+refreshChrome();
+</script>
+</body>
+</html>
