@@ -7,6 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <style>
 :root{
   --bg:#eceff3; --surface:#ffffff; --ink:#101a26; --muted:#5f6b7a; --line:#d9dee5;
@@ -165,7 +168,7 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--bg);border-radius:18px 18px 0 0;max-height:92%;overflow:auto;
   transform:translateY(105%);transition:transform .25s ease;padding:8px 16px calc(18px + env(safe-area-inset-bottom,0px));max-width:720px;margin:0 auto}
 .sheet.open{transform:none}
-.grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px}
+.grab{width:42px;height:5px;border-radius:99px;background:var(--line);margin:4px auto 12px}
 .sheet h3{font-size:19px;margin-bottom:12px}
 
 /* receipt */
@@ -227,7 +230,6 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 .small-help{font-size:12px;color:var(--muted);margin-top:4px}
 @media(max-width:520px){.share-row{grid-template-columns:1fr 1fr}.lang-grid{grid-template-columns:repeat(3,1fr)}}
 
-
 /* Premium invoice / JPG sharing */
 .invoice-paper{
   width:100%; max-width:760px; margin:0 auto; background:#fff; color:#111;
@@ -270,19 +272,19 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 .invoice-rtl .invoice-table .desc{text-align:right}
 .invoice-rtl .stamp-box{text-align:center}
 .invoice-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.badge{background:#28a745;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
 @media(max-width:650px){
  .invoice-head{grid-template-columns:1fr 145px}.stamp-box{height:105px}.stamp-space{height:65px}
  .invoice-bottom{grid-template-columns:1fr 220px}.invoice-actions{grid-template-columns:1fr 1fr}
  .invoice-paper{padding:14px}.invoice-shop{font-size:20px}
 }
-
 </style>
 </head>
 <body>
 
 <header class="top">
   <div class="brand">
-    <div class="brand-name" id="shopName">Shaheen Mart</div>
+    <div class="brand-name"><span id="shopName">Shaheen Mart</span> <span class="badge" id="syncStatus">Online</span></div>
     <div class="brand-sub">Point of sale</div>
   </div>
   <div class="today"><span>Today's sales</span><b id="hdrToday">0.00</b></div>
@@ -304,7 +306,7 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
         oninput="onQ()" onkeydown="if(event.key==='Enter')enterQ()">
       <div id="results"></div>
       <div class="quick-card">
-        <button class="btn" style="width:100%" onclick="addQuickItem()">＋ ${t('quick')}</button>
+        <button class="btn" style="width:100%" onclick="addQuickItem()">＋ Quick item / no barcode</button>
       </div>
     </div>
 
@@ -446,18 +448,16 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const norm = c => { c = String(c || '').trim(); return /^\d+$/.test(c) ? c.replace(/^0+/, '') : c.toLowerCase(); };
 const prod = id => S.products.find(p => p.id === id);
 const findByBarcode = code => { const n = norm(code); return n ? S.products.find(p => p.barcode && norm(p.barcode) === n) : null; };
-function searchProducts(t){ t=String(t||'').toLowerCase(); return S.products.filter(p=>p.name.toLowerCase().includes(t)||(p.barcode||'').toLowerCase().includes(t)).slice(0,8); }
 const isToday = iso => new Date(iso).toDateString() === new Date().toDateString();
 const fmtDate = iso => new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const invPaid = inv => r2(inv.payments.reduce((s, p) => s + p.amt, 0));
 const invDue = inv => Math.max(0, r2(inv.total - invPaid(inv)));
 const invStatus = inv => invDue(inv) <= 0.004 ? 'paid' : (invPaid(inv) > 0 ? 'part' : 'unpaid');
-const statusLabel = { paid: 'Paid', part: 'Part paid', unpaid: 'Unpaid' };
 
 let toastT;
 function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+  const tEl = $('toast'); tEl.textContent = msg; tEl.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => tEl.classList.remove('show'), 2200);
 }
 let ac;
 function beep(ok) {
@@ -487,63 +487,25 @@ function go(v) {
   refreshChrome();
   window.scrollTo(0, 0);
 }
-function refreshChrome() {
-  $('shopName').textContent = S.settings.shop;
-  document.title = S.settings.shop + ' POS';
-  const todaySales = S.invoices.filter(i => isToday(i.at)).reduce((s, i) => s + i.total, 0);
-  $('hdrToday').textContent = money(todaySales);
-  const low = S.products.filter(p => p.qty <= (p.low || 0)).length;
-  $('lowBadge').hidden = !low; $('lowBadge').textContent = low;
-  const dueCount = S.invoices.filter(i => invDue(i) > 0.004).length;
-  $('dueBadge').hidden = !dueCount; $('dueBadge').textContent = dueCount;
-  $('saveBar').hidden = !(view === 'sell' && cart.length);
-}
 
-/* ---------- selling ---------- */
-function addToCart(p, n) {
-  n = n || 1;
-  const line = cart.find(l => l.pid === p.id);
-  const have = line ? line.qty : 0;
-  if (have + n > p.qty) { toast(p.qty <= 0 ? p.name + ' is out of stock' : 'Only ' + p.qty + ' of ' + p.name + ' in stock'); return false; }
-  if (line) line.qty += n; else cart.push({ pid: p.id, name: p.name, barcode: p.barcode, price: p.price, qty: n });
-  renderCart();
-  return true;
-}
+/* ---------- selling & cart ---------- */
 function chg(i, d) {
   const l = cart[i], p = prod(l.pid); if (!l) return;
-  const nq = l.qty + d;
-  if (nq < 1) { rm(i); return; }
-  if (!p || nq > p.qty) { toast('Only ' + (p ? p.qty : 0) + ' in stock'); return; }
+  const step = (l.unit && l.unit !== 'pcs') ? 0.1 : 1;
+  const nq = r2(l.qty + d * step);
+  if (nq < step / 2) { rm(i); return; }
+  if (!p || nq > p.qty + 0.0001) { toast('Only ' + (p ? p.qty : 0) + ' in stock'); return; }
   l.qty = nq; renderCart();
 }
 function setQty(i, v) {
-  const l = cart[i], p = prod(l.pid); let n = Math.floor(+v);
-  if (!n || n < 1) n = 1;
+  const l = cart[i], p = prod(l.pid); let n = r2(+v);
+  if (!(n > 0)) n = l && l.unit !== 'pcs' ? 0.1 : 1;
   if (p && n > p.qty) { n = p.qty; toast('Only ' + p.qty + ' in stock'); }
-  l.qty = n; renderCart();
+  l.qty = r2(n); renderCart();
 }
 function rm(i) { cart.splice(i, 1); renderCart(); }
 function clearCart() { cart = []; $('disc').value = ''; $('custName').value = ''; paidTouched = false; renderCart(); }
 
-function renderCart() {
-  const el = $('cartList');
-  if (!cart.length) {
-    el.innerHTML = '<div class="empty">No items yet. Tap Scan item, or search above.</div>';
-  } else {
-    el.innerHTML = cart.map((l, i) => {
-      const p = prod(l.pid), left = (p ? p.qty : 0) - l.qty;
-      return `<div class="line">
-        <div class="l-main"><div class="l-name">${esc(l.name)}</div><div class="l-sub">${money(l.price)} each, ${left} left after this sale</div></div>
-        <div class="stepper"><button onclick="chg(${i},-1)" aria-label="Less">&minus;</button><input type="number" inputmode="numeric" min="1" value="${l.qty}" onchange="setQty(${i},this.value)" aria-label="Quantity"><button onclick="chg(${i},1)" aria-label="More">+</button></div>
-        <div class="l-total">${money(l.price * l.qty)}</div>
-        <button class="x" onclick="rm(${i})" aria-label="Remove item">&times;</button>
-      </div>`;
-    }).join('');
-  }
-  $('payCard').hidden = !cart.length;
-  $('clearBtn').hidden = !cart.length;
-  updateTotals();
-}
 function totals() {
   const sub = r2(cart.reduce((s, l) => s + l.price * l.qty, 0));
   const disc = Math.min(Math.max(0, r2($('disc').value)), sub);
@@ -552,72 +514,21 @@ function totals() {
   return { sub, disc, total, paid, due: r2(total - paid) };
 }
 function updateTotals() {
-  const t = totals();
-  if (!paidTouched) $('paid').value = t.total ? t.total : '';
-  $('sSub').textContent = money(t.sub);
-  $('sDisc').textContent = '- ' + money(t.disc);
-  $('sTotal').textContent = money(t.total);
-  $('sPaid').textContent = money(t.paid);
-  const d = $('sDue'); d.textContent = money(t.due);
-  d.className = 'due ' + (t.due > 0.004 ? 'owing' : 'clear');
-  $('sbTotal').textContent = money(t.total);
+  const tVal = totals();
+  if (!paidTouched) $('paid').value = tVal.total ? tVal.total : '';
+  $('sSub').textContent = money(tVal.sub);
+  $('sDisc').textContent = '- ' + money(tVal.disc);
+  $('sTotal').textContent = money(tVal.total);
+  $('sPaid').textContent = money(tVal.paid);
+  const d = $('sDue'); d.textContent = money(tVal.due);
+  d.className = 'due ' + (tVal.due > 0.004 ? 'owing' : 'clear');
+  $('sbTotal').textContent = money(tVal.total);
   refreshChrome();
 }
 function payFull() { paidTouched = false; updateTotals(); }
 function payNone() { paidTouched = true; $('paid').value = 0; updateTotals(); }
 
-function saveInvoice() {
-  if (!cart.length) { toast('Add at least one item'); return; }
-  for (const l of cart) {
-    const p = prod(l.pid);
-    if (!p) { toast(l.name + ' is no longer in stock list'); return; }
-    if (p.qty < l.qty) { toast('Only ' + p.qty + ' of ' + p.name + ' left'); return; }
-  }
-  const t = totals();
-  const now = new Date().toISOString();
-  cart.forEach(l => { const p = prod(l.pid); p.qty -= l.qty; p.sold = (p.sold || 0) + l.qty; });
-  const inv = {
-    id: uid(), no: 'INV-' + String(S.settings.next).padStart(4, '0'), at: now,
-    customer: $('custName').value.trim(),
-    items: cart.map(l => ({ pid: l.pid, name: l.name, barcode: l.barcode, price: l.price, qty: l.qty })),
-    subtotal: t.sub, discount: t.disc, total: t.total,
-    payments: t.paid > 0 ? [{ amt: t.paid, at: now }] : []
-  };
-  S.settings.next++;
-  S.invoices.unshift(inv);
-  save();
-  clearCart();
-  go('sell');
-  toast(inv.no + ' saved, stock updated');
-  showInvoice(inv.id);
-}
-
-/* lookup */
-function onQ() {
-  const v = $('q').value.trim(), box = $('results');
-  if (!v) { box.innerHTML = ''; return; }
-  const m = searchProducts(v);
-  box.innerHTML = m.map(p => `<button class="res" ${p.qty <= 0 ? 'disabled' : ''} onclick="pickResult('${p.id}')">
-      <span><span class="p">${esc(p.name)}</span><br><small>${p.qty} in stock</small></span><b>${money(p.price)}</b></button>`).join('');
-}
-function pickResult(id) { const p = prod(id); if (p && addToCart(p)) { $('q').value = ''; onQ(); } }
-function enterQ() {
-  const v = $('q').value.trim(); if (!v) return;
-  const p = findByBarcode(v);
-  if (p) { if (addToCart(p)) { beep(true); $('q').value = ''; onQ(); } return; }
-  const m = searchProducts(v);
-  if (m.length === 1) { pickResult(m[0].id); return; }
-  if (!m.length) {
-    lastUnknown = v;
-    $('results').innerHTML = `<div class="notfound">Nothing matches <b>${esc(v)}</b>. <button class="link" onclick="addUnknown()">Add as new product</button></div>`;
-  }
-}
-function addUnknown() {
-  closeScanner(); closeSheet();
-  openProductForm(null, lastUnknown, true);
-}
-
-/* ---------- scanner ---------- */
+/* ---------- scanner & lookup ---------- */
 let h5 = null, scanHandler = null, lastCode = '', lastTime = 0, scanning = false;
 function scanMsg(html, cls) { const m = $('scanMsg'); m.className = 'scan-msg ' + (cls || ''); m.innerHTML = html; }
 
@@ -644,7 +555,7 @@ async function openScanner(handler, title, hint) {
     scanning = true;
   } catch (e) {
     scanning = false;
-    scanMsg('Camera is not available (' + esc((e && e.message) || e) + '). Allow camera access in your browser, or type the code below. If this page is embedded, open it in its own browser tab.', 'bad');
+    scanMsg('Camera is not available (' + esc((e && e.message) || e) + '). Allow camera access in your browser, or type the code below.', 'bad');
   }
 }
 function onScan(code) {
@@ -684,29 +595,8 @@ function openSheet(html) {
 }
 function closeSheet() { $('backdrop').classList.remove('open'); $('sheet').classList.remove('open'); }
 
-/* ---------- stock ---------- */
+/* ---------- stock management ---------- */
 function setStockFilter(f) { stockFilter = f; $('fAll').classList.toggle('on', f === 'all'); $('fLow').classList.toggle('on', f === 'low'); renderStock(); }
-function renderStock() {
-  const units = S.products.reduce((s, p) => s + p.qty, 0);
-  const value = S.products.reduce((s, p) => s + p.qty * p.price, 0);
-  const low = S.products.filter(p => p.qty <= (p.low || 0));
-  $('stockStats').innerHTML = `
-    <div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
-    <div class="stat"><div class="v">${units.toLocaleString()}</div><div class="k">Units in stock</div></div>
-    <div class="stat"><div class="v">${money(value)}</div><div class="k">Stock value at selling price</div></div>
-    <div class="stat ${low.length ? 'warn' : ''}"><div class="v">${low.length}</div><div class="k">Low or out of stock</div></div>`;
-  const q = $('sq').value.trim().toLowerCase();
-  let list = S.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q));
-  if (stockFilter === 'low') list = list.filter(p => p.qty <= (p.low || 0));
-  list.sort((a, b) => a.name.localeCompare(b.name));
-  $('stockList').innerHTML = list.length ? list.map(p => {
-    const st = p.qty <= 0 ? 'out' : (p.qty <= (p.low || 0) ? 'low' : 'ok');
-    return `<button class="prow" onclick="openProductForm('${p.id}')">
-      <span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode ? 'Code ' + esc(p.barcode) : 'No code'}</span></span>
-      <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock'}</span></span></button>`;
-  }).join('') : '<div class="empty">' + (S.products.length ? 'No products match.' : 'No products yet. Tap Add product to start your stock list.') + '</div>';
-  refreshChrome();
-}
 function openProductForm(id, code, addAfter) {
   const p = id ? prod(id) : null; formAddAfter = !!addAfter;
   const unit = p && p.unit ? p.unit : 'pcs';
@@ -744,25 +634,6 @@ function openProductForm(id, code, addAfter) {
 function scanInto() {
   openScanner(code => { $('f_code').value = code; beep(true); closeScanner(); }, 'Scan product code', 'Scan the barcode or QR code on the product.');
 }
-function saveProduct(id) {
-  const err = m => { $('f_err').textContent = m; };
-  const name = $('f_name').value.trim(), code = $('f_code').value.trim();
-  const priceRaw = $('f_price').value, qtyRaw = $('f_qty').value;
-  if (!name) return err('Enter a product name.');
-  if (priceRaw === '' || +priceRaw < 0) return err('Enter a selling price.');
-  if (qtyRaw === '' || +qtyRaw < 0) return err('Enter the quantity in stock (0 or more).');
-  const dup = code && S.products.find(x => x.id !== id && x.barcode && norm(x.barcode) === norm(code));
-  if (dup) return err('This code already belongs to ' + dup.name + '.');
-  const data = { name, barcode: code, price: r2(priceRaw), qty: Math.floor(+qtyRaw), low: Math.max(0, Math.floor(+$('f_low').value || 0)) };
-  let p;
-  if (id) { p = prod(id); Object.assign(p, data); }
-  else { p = Object.assign({ id: uid(), sold: 0 }, data); S.products.push(p); }
-  save(); closeSheet();
-  toast(id ? 'Product updated' : 'Product added');
-  if (formAddAfter) { formAddAfter = false; if (addToCart(p)) toast(p.name + ' added to invoice'); }
-  if (view === 'stock') renderStock();
-  refreshChrome();
-}
 function delProduct(id) {
   S.products = S.products.filter(p => p.id !== id);
   cart = cart.filter(l => l.pid !== id);
@@ -784,37 +655,15 @@ function renderInv() {
   const q = $('iq').value.trim().toLowerCase();
   let list = S.invoices.filter(i => !q || i.no.toLowerCase().includes(q) || (i.customer || '').toLowerCase().includes(q));
   if (invFilter === 'due') list = list.filter(i => invDue(i) > 0.004);
+  
+  const statusLabelMap = { paid: t('paid'), part: t('part'), unpaid: t('unpaid') };
   $('invList').innerHTML = list.length ? list.map(i => {
     const st = invStatus(i), due = invDue(i);
     return `<button class="irow" onclick="showInvoice('${i.id}')">
       <span><span class="n">${esc(i.no)}${i.customer ? ' for ' + esc(i.customer) : ''}</span><br><span class="s">${fmtDate(i.at)}</span></span>
-      <span class="right"><b>${money(i.total)}</b><br><span class="pill ${st}">${statusLabel[st]}${due > 0.004 ? ', ' + money(due) + ' due' : ''}</span></span></button>`;
+      <span class="right"><b>${money(i.total)}</b><br><span class="pill ${st}">${statusLabelMap[st]}${due > 0.004 ? ', ' + money(due) + ' due' : ''}</span></span></button>`;
   }).join('') : '<div class="empty">' + (S.invoices.length ? 'No invoices match.' : 'No invoices yet. Saved sales appear here.') + '</div>';
   refreshChrome();
-}
-function showInvoice(id) {
-  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
-  const paid = invPaid(inv), due = invDue(inv);
-  openSheet(`<div class="receipt">
-      <div class="r-shop">${esc(S.settings.shop)}</div>
-      <div class="r-meta">${esc(inv.no)}</div>
-      <div class="r-meta">${fmtDate(inv.at)}</div>
-      ${inv.customer ? `<div class="r-meta">Customer: ${esc(inv.customer)}</div>` : ''}
-      <table class="r-items">${inv.items.map(l => `<tr><td>${esc(l.name)}<br><small>${l.qty} x ${num(l.price)}</small></td><td>${num(l.qty * l.price)}</td></tr>`).join('')}</table>
-      <div class="r-sum">
-        <div class="r"><span>Subtotal</span><span>${money(inv.subtotal)}</span></div>
-        ${inv.discount > 0 ? `<div class="r"><span>Discount</span><span>- ${money(inv.discount)}</span></div>` : ''}
-        <div class="r big"><span>Total</span><span>${money(inv.total)}</span></div>
-        <div class="r"><span>Paid</span><span>${money(paid)}</span></div>
-        <div class="r"><span><b>Balance due</b></span><span><b>${money(due)}</b></span></div>
-      </div>
-      ${inv.payments.length ? `<div class="r-pay">${inv.payments.map(p => `<div><span>Payment on ${fmtDate(p.at)}</span><span>${money(p.amt)}</span></div>`).join('')}</div>` : ''}
-    </div>
-    ${due > 0.004 ? `<div class="paybox no-print">
-      <label style="margin:0">Record a payment
-        <div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">Add payment</button></div>
-      </label></div>` : ''}
-    <div class="actions no-print"><button class="btn primary" onclick="window.print()">Print receipt</button><button class="btn ghost" onclick="closeSheet()">Close</button></div>`);
 }
 function addPayment(id) {
   const inv = S.invoices.find(x => x.id === id); if (!inv) return;
@@ -826,30 +675,7 @@ function addPayment(id) {
   toast(invDue(inv) <= 0.004 ? inv.no + ' is fully paid' : 'Payment recorded');
 }
 
-/* ---------- settings ---------- */
-function openSettings() {
-  openSheet(`<h3>Settings</h3>
-    <label>Shop name<input id="st_shop" type="text" value="${esc(S.settings.shop)}"></label>
-    <label>Currency symbol<input id="st_cur" type="text" maxlength="6" value="${esc(S.settings.cur)}"></label>
-    <div class="actions"><button class="btn primary" onclick="saveSettings()">Save settings</button><button class="btn ghost" onclick="closeSheet()">Cancel</button></div>
-    <div class="card" style="margin-top:16px">
-      <b>Reset everything</b>
-      <p style="color:var(--muted);margin:6px 0 10px">Deletes all products and invoices on this device and restores the sample stock list.</p>
-      <button class="btn danger" onclick="confirmTap(this,resetAll)">Reset all data</button>
-    </div>`);
-}
-function saveSettings() {
-  S.settings.shop = $('st_shop').value.trim() || 'Shaheen Mart';
-  S.settings.cur = $('st_cur').value.trim() || 'Rs.';
-  save(); closeSheet(); renderCart(); go(view); toast('Settings saved');
-}
-function resetAll() {
-  S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
-  seed(); save(); cart = []; clearCart(); closeSheet(); go('sell'); toast('Data reset');
-}
-
-
-/* ---------- Shaheen Mart simple upgrade layer ---------- */
+/* ---------- Multi-Language Translation System ---------- */
 const LANG = {
   en: {
     sell:"Sell", stock:"Stock", invoices:"Invoices", settings:"Settings",
@@ -868,7 +694,10 @@ const LANG = {
     liter:"Liter", dozen:"Dozen", pack:"Pack", box:"Box", print:"Print receipt",
     pdf:"Export PDF", whatsapp:"WhatsApp", close:"Close", payment:"Record a payment",
     add:"Add payment", quick:"Quick item / no barcode", name:"Item name", share:"Share invoice",
-    paid:"Paid", part:"Part paid", unpaid:"Unpaid"
+    paid:"Paid", part:"Part paid", unpaid:"Unpaid", invoiceTitle:"SALES INVOICE", date:"Date", 
+    memo:"Memo No.", billedTo:"Billed To", phone:"Phone", description:"Description", unitPrice:"Price", 
+    amount:"Amount", stamp:"SELLER'S STAMP & SIGN", paidLabel:"Paid", change:"Change Due", 
+    thank:"Thank you for shopping with us", notes:"Notes", cashier:"Cashier"
   },
   ur: {
     sell:"فروخت", stock:"اسٹاک", invoices:"انوائسز", settings:"ترتیبات",
@@ -887,7 +716,10 @@ const LANG = {
     liter:"لیٹر", dozen:"درجن", pack:"پیک", box:"باکس", print:"رسید پرنٹ",
     pdf:"PDF بنائیں", whatsapp:"واٹس ایپ", close:"بند کریں", payment:"ادائیگی درج کریں",
     add:"ادائیگی شامل کریں", quick:"فوری آئٹم / بغیر بارکوڈ", name:"آئٹم کا نام", share:"انوائس شیئر",
-    paid:"ادا شدہ", part:"جزوی ادا", unpaid:"غیر ادا شدہ"
+    paid:"ادا شدہ", part:"جزوی ادا", unpaid:"غیر ادا شدہ", invoiceTitle:"فروخت کی رسید", date:"تاریخ", 
+    memo:"میمو نمبر", billedTo:"خریدار کا نام", phone:"فون", description:"تفصیل", unitPrice:"قیمت", 
+    amount:"رقم", stamp:"فروخت کنندہ کی مہر اور دستخط", paidLabel:"وصول شدہ", change:"واپس رقم", 
+    thank:"ہم سے خریداری کا شکریہ", notes:"نوٹس", cashier:"کیشئر"
   },
   ps: {
     sell:"خرڅلاو", stock:"سټاک", invoices:"انوائسونه", settings:"ترتیبات",
@@ -906,194 +738,178 @@ const LANG = {
     liter:"لیټر", dozen:"درجن", pack:"پیک", box:"بکس", print:"رسید چاپ",
     pdf:"PDF جوړ کړئ", whatsapp:"واټس اپ", close:"بند", payment:"تادیه ثبت کړئ",
     add:"تادیه اضافه کړئ", quick:"چټک توکی / بې بارکوډ", name:"د توکي نوم", share:"انوائس شریک کړئ",
-    paid:"ادا شوی", part:"نیمه ادا", unpaid:"ناادا"
+    paid:"ادا شوی", part:"نیمه ادا", unpaid:"ناادا", invoiceTitle:"د خرڅلاو رسید", date:"نېټه", 
+    memo:"میمو نمبر", billedTo:"پیرودونکی", phone:"ټیلیفون", description:"تفصیل", unitPrice:"بیه", 
+    amount:"مبلغ", stamp:"د پلورونکي مهر او لاسلیک", paidLabel:"ادا شوې", change:"باقي/واپس پیسې", 
+    thank:"له موږ څخه د پیرودنې مننه", notes:"یادښت", cashier:"کیشیر"
   }
 };
 
-
-Object.assign(LANG.en,{
-  invoiceTitle:"SALES INVOICE", date:"Date", memo:"Memo No.", billedTo:"Billed To",
-  phone:"Phone", description:"Description", qty:"Qty", unitPrice:"Price", amount:"Amount",
-  stamp:"SELLER'S STAMP & SIGN", paidLabel:"Paid", change:"Change Due", thank:"Thank you for shopping with us",
-  notes:"Notes", cashier:"Cashier"
-});
-Object.assign(LANG.ur,{
-  invoiceTitle:"فروخت کی رسید", date:"تاریخ", memo:"میمو نمبر", billedTo:"خریدار کا نام",
-  phone:"فون", description:"تفصیل", qty:"مقدار", unitPrice:"قیمت", amount:"رقم",
-  stamp:"فروخت کنندہ کی مہر اور دستخط", paidLabel:"وصول شدہ", change:"واپس رقم", thank:"ہم سے خریداری کا شکریہ",
-  notes:"نوٹس", cashier:"کیشئر"
-});
-Object.assign(LANG.ps,{
-  invoiceTitle:"د خرڅلاو رسید", date:"نېټه", memo:"میمو نمبر", billedTo:"پیرودونکی",
-  phone:"ټیلیفون", description:"تفصیل", qty:"مقدار", unitPrice:"بیه", amount:"مبلغ",
-  stamp:"د پلورونکي مهر او لاسلیک", paidLabel:"ادا شوې", change:"باقي/واپس پیسې", thank:"له موږ څخه د پیرودنې مننه",
-  notes:"یادښت", cashier:"کیشیر"
-});
-function invText(k){return (LANG[S.settings.lang||'en']||LANG.en)[k]||LANG.en[k]||k;}
-
 function t(k){ return (LANG[S.settings.lang || 'en'] || LANG.en)[k] || LANG.en[k] || k; }
+function invText(k){ return t(k); }
+
 function applyLang(){
-  const l=S.settings.lang||'en';
-  document.documentElement.lang=l==='ur'?'ur':(l==='ps'?'ps':'en');
-  document.body.classList.toggle('rtl', l!=='en');
-  const map={
-    'n-sell':t('sell'),'n-stock':t('stock'),'n-inv':t('invoices'),
-    'fAll':t('all'),'fLow':t('low'),'iAll':t('allInvoices'),'iDue':t('balance')
+  const l = S.settings.lang || 'en';
+  document.documentElement.lang = l === 'ur' ? 'ur' : (l === 'ps' ? 'ps' : 'en');
+  document.body.classList.toggle('rtl', l !== 'en');
+  const map = {
+    'n-sell': t('sell'), 'n-stock': t('stock'), 'n-inv': t('invoices'),
+    'fAll': t('all'), 'fLow': t('low'), 'iAll': t('allInvoices'), 'iDue': t('balance')
   };
-  Object.entries(map).forEach(([id,v])=>{if($(id)) $(id).childNodes[0].nodeValue=v;});
-  const q=$('q'); if(q) q.placeholder=t('search');
-  const sq=$('sq'); if(sq) sq.placeholder=t('searchProducts');
-  const iq=$('iq'); if(iq) iq.placeholder=t('searchInvoices');
-  const shopSub=document.querySelector('.brand-sub'); if(shopSub) shopSub.textContent=l==='en'?'Point of sale':(l==='ur'?'سیل پوائنٹ':'د خرڅلاو سیستم');
-  const scan=document.querySelector('.scan-btn span'); if(scan){scan.childNodes[0].nodeValue=t('scan'); scan.querySelector('small').textContent=t('scanHint');}
-  const h2=document.querySelector('#v-sell .sec-h h2'); if(h2) h2.textContent=t('newInvoice');
-  const clear=$('clearBtn'); if(clear) clear.textContent=t('clear');
-  const addBtn=document.querySelector('#v-stock .btn.primary'); if(addBtn) addBtn.textContent=t('addProduct');
-  const saveBtn=document.querySelector('#saveBar .btn.primary'); if(saveBtn) saveBtn.textContent=t('saveInvoice');
+  Object.entries(map).forEach(([id, v]) => { if ($(id)) $(id).childNodes[0].nodeValue = v; });
+  const q = $('q'); if (q) q.placeholder = t('search');
+  const sq = $('sq'); if (sq) sq.placeholder = t('searchProducts');
+  const iq = $('iq'); if (iq) iq.placeholder = t('searchInvoices');
+  const shopSub = document.querySelector('.brand-sub'); if (shopSub) shopSub.textContent = l === 'en' ? 'Point of sale' : (l === 'ur' ? 'سیل پوائنٹ' : 'د خرڅلاو سیستم');
+  const scan = document.querySelector('.scan-btn span'); if (scan) { scan.childNodes[0].nodeValue = t('scan'); scan.querySelector('small').textContent = t('scanHint'); }
+  const h2 = document.querySelector('#v-sell .sec-h h2'); if (h2) h2.textContent = t('newInvoice');
+  const clear = $('clearBtn'); if (clear) clear.textContent = t('clear');
+  const addBtn = document.querySelector('#v-stock .btn.primary'); if (addBtn) addBtn.textContent = t('addProduct');
+  const saveBtn = document.querySelector('#saveBar .btn.primary'); if (saveBtn) saveBtn.textContent = t('saveInvoice');
 }
+
 function refreshChrome(){
-  $('shopName').textContent=S.settings.shop;
-  document.title=S.settings.shop+' POS';
-  const todaySales=S.invoices.filter(i=>isToday(i.at)).reduce((s,i)=>s+i.total,0);
-  $('hdrToday').textContent=money(todaySales);
-  const low=S.products.filter(p=>p.qty<=(p.low||0)).length;
-  $('lowBadge').hidden=!low; $('lowBadge').textContent=low;
-  const dueCount=S.invoices.filter(i=>invDue(i)>0.004).length;
-  $('dueBadge').hidden=!dueCount; $('dueBadge').textContent=dueCount;
-  $('saveBar').hidden=!(view==='sell'&&cart.length);
+  $('shopName').textContent = S.settings.shop;
+  document.title = S.settings.shop + ' POS';
+  const todaySales = S.invoices.filter(i => isToday(i.at)).reduce((s, i) => s + i.total, 0);
+  $('hdrToday').textContent = money(todaySales);
+  const low = S.products.filter(p => p.qty <= (p.low || 0)).length;
+  $('lowBadge').hidden = !low; $('lowBadge').textContent = low;
+  const dueCount = S.invoices.filter(i => invDue(i) > 0.004).length;
+  $('dueBadge').hidden = !dueCount; $('dueBadge').textContent = dueCount;
+  $('saveBar').hidden = !(view === 'sell' && cart.length);
   applyLang();
 }
+
 function unitName(u){
-  return ({pcs:t('piece'),kg:t('kg'),g:t('gram'),ltr:t('liter'),dozen:t('dozen'),pack:t('pack'),box:t('box')})[u]||u||t('piece');
+  return ({ pcs: t('piece'), kg: t('kg'), g: t('gram'), ltr: t('liter'), dozen: t('dozen'), pack: t('pack'), box: t('box') })[u] || u || t('piece');
 }
-function addToCart(p,n){
-  n = n==null ? 1 : +n;
-  if(!(n>0)) n=1;
-  const line=cart.find(l=>l.pid===p.id), have=line?line.qty:0;
-  if(have+n>p.qty+0.0001){toast(p.qty<=0?p.name+' is out of stock':'Only '+p.qty+' of '+p.name+' in stock');return false;}
-  if(line) line.qty=r2(line.qty+n);
-  else cart.push({pid:p.id,name:p.name,barcode:p.barcode,price:p.price,qty:r2(n),unit:p.unit||'pcs'});
+
+function addToCart(p, n){
+  n = n == null ? 1 : +n;
+  if (!(n > 0)) n = 1;
+  const line = cart.find(l => l.pid === p.id), have = line ? line.qty : 0;
+  if (have + n > p.qty + 0.0001) { toast(p.qty <= 0 ? p.name + ' is out of stock' : 'Only ' + p.qty + ' of ' + p.name + ' in stock'); return false; }
+  if (line) line.qty = r2(line.qty + n);
+  else cart.push({ pid: p.id, name: p.name, barcode: p.barcode, price: p.price, qty: r2(n), unit: p.unit || 'pcs' });
   renderCart(); return true;
 }
-function chg(i,d){
-  const l=cart[i],p=prod(l.pid); if(!l)return;
-  const step=(l.unit&&l.unit!=='pcs')?0.1:1;
-  const nq=r2(l.qty+d*step);
-  if(nq<step/2){rm(i);return;}
-  if(!p||nq>p.qty+0.0001){toast('Only '+(p?p.qty:0)+' in stock');return;}
-  l.qty=nq;renderCart();
-}
-function setQty(i,v){
-  const l=cart[i],p=prod(l.pid); let n=r2(+v);
-  if(!(n>0)) n=l&&l.unit!=='pcs'?0.1:1;
-  if(p&&n>p.qty){n=p.qty;toast('Only '+p.qty+' in stock');}
-  l.qty=r2(n);renderCart();
-}
+
 function renderCart(){
-  const el=$('cartList');
-  if(!cart.length){el.innerHTML='<div class="empty">'+t('noItems')+'</div>';}
-  else el.innerHTML=cart.map((l,i)=>{
-    const p=prod(l.pid),left=p?r2(p.qty-l.qty):0;
+  const el = $('cartList');
+  if (!cart.length) { el.innerHTML = '<div class="empty">' + t('noItems') + '</div>'; }
+  else el.innerHTML = cart.map((l, i) => {
+    const p = prod(l.pid), left = p ? r2(p.qty - l.qty) : 0;
     return `<div class="line">
       <div class="l-main"><div class="l-name">${esc(l.name)}</div><div class="l-sub">${money(l.price)} / ${unitName(l.unit)} · ${left} left</div></div>
       <div class="stepper"><button onclick="chg(${i},-1)">−</button><input type="number" inputmode="decimal" min="0.01" step="${l.unit==='pcs'?1:.1}" value="${l.qty}" onchange="setQty(${i},this.value)"><button onclick="chg(${i},1)">+</button></div>
       <div class="l-total">${money(l.price*l.qty)}</div><button class="x" onclick="rm(${i})">×</button>
     </div>`;
   }).join('');
-  $('payCard').hidden=!cart.length;$('clearBtn').hidden=!cart.length;updateTotals();
+  $('payCard').hidden = !cart.length; $('clearBtn').hidden = !cart.length; updateTotals();
 }
+
 function saveProduct(id){
-  const err=m=>{$('f_err').textContent=m;};
-  const name=$('f_name').value.trim(),code=$('f_code').value.trim();
-  const priceRaw=$('f_price').value,qtyRaw=$('f_qty').value,unit=$('f_unit').value;
-  if(!name)return err('Enter a product name.');
-  if(priceRaw===''||+priceRaw<0)return err('Enter a selling price.');
-  if(qtyRaw===''||+qtyRaw<0)return err('Enter stock quantity.');
-  const dup=code&&S.products.find(x=>x.id!==id&&x.barcode&&norm(x.barcode)===norm(code));
-  if(dup)return err('This code already belongs to '+dup.name+'.');
-  const data={name, nameUrdu:($('f_name_ur')?.value||'').trim(), namePashto:($('f_name_ps')?.value||'').trim(), barcode:code,price:r2(priceRaw),qty:r2(qtyRaw),unit,low:Math.max(0,r2($('f_low').value||0))};
+  const err = m => { $('f_err').textContent = m; };
+  const name = $('f_name').value.trim(), code =$('f_code').value.trim();
+  const priceRaw = $('f_price').value, qtyRaw = $('f_qty').value, unit =$('f_unit').value;
+  if (!name) return err('Enter a product name.');
+  if (priceRaw === '' || +priceRaw < 0) return err('Enter a selling price.');
+  if (qtyRaw === '' || +qtyRaw < 0) return err('Enter stock quantity.');
+  const dup = code && S.products.find(x => x.id !== id && x.barcode && norm(x.barcode) === norm(code));
+  if (dup) return err('This code already belongs to ' + dup.name + '.');
+  const data = { name, nameUrdu: ($('f_name_ur')?.value || '').trim(), namePashto: ($('f_name_ps')?.value \vert{}\vert{} '').trim(), barcode: code, price: r2(priceRaw), qty: r2(qtyRaw), unit, low: Math.max(0, r2($('f_low').value || 0)) };
   let p;
-  if(id){p=prod(id);Object.assign(p,data);}
-  else{p=Object.assign({id:uid(),sold:0},data);S.products.push(p);}
-  save();closeSheet();toast(id?'Product updated':'Product added');
-  if(formAddAfter){formAddAfter=false;if(addToCart(p))toast(p.name+' added to invoice');}
-  if(view==='stock')renderStock();refreshChrome();
+  if (id) { p = prod(id); Object.assign(p, data); }
+  else { p = Object.assign({ id: uid(), sold: 0 }, data); S.products.push(p); }
+  save(); closeSheet(); toast(id ? 'Product updated' : 'Product added');
+  if (formAddAfter) { formAddAfter = false; if (addToCart(p)) toast(p.name + ' added to invoice'); }
+  if (view === 'stock') renderStock(); refreshChrome();
 }
+
 function renderStock(){
-  const units=S.products.reduce((s,p)=>s+(+p.qty||0),0);
-  const value=S.products.reduce((s,p)=>s+(+p.qty||0)*(+p.price||0),0);
-  const low=S.products.filter(p=>(+p.qty||0)<=(p.low||0));
-  $('stockStats').innerHTML=`<div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
+  const units = S.products.reduce((s, p) => s + (+p.qty || 0), 0);
+  const value = S.products.reduce((s, p) => s + (+p.qty || 0) * (+p.price || 0), 0);
+  const low = S.products.filter(p => (+p.qty || 0) <= (p.low || 0));
+  $('stockStats').innerHTML = `<div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
     <div class="stat"><div class="v">${units.toLocaleString()}</div><div class="k">Units in stock</div></div>
     <div class="stat"><div class="v">${money(value)}</div><div class="k">Stock value</div></div>
-    <div class="stat ${low.length?'warn':''}"><div class="v">${low.length}</div><div class="k">${t('low')}</div></div>`;
-  const q=$('sq').value.trim().toLowerCase();
-  let list=S.products.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.barcode||'').toLowerCase().includes(q));
-  if(stockFilter==='low')list=list.filter(p=>(+p.qty||0)<=+(p.low||0));
-  list.sort((a,b)=>a.name.localeCompare(b.name));
-  $('stockList').innerHTML=list.length?list.map(p=>{
-    const st=p.qty<=0?'out':(p.qty<=+(p.low||0)?'low':'ok');
-    return `<button class="prow" onclick="openProductForm('${p.id}')"><span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode?'Code '+esc(p.barcode):'No barcode'} · ${unitName(p.unit)}</span></span>
-    <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty<=0?'Out of stock':p.qty+' '+unitName(p.unit)}</span></span></button>`;
-  }).join(''):'<div class="empty">No products match.</div>';
+    <div class="stat ${low.length ? 'warn' : ''}"><div class="v">${low.length}</div><div class="k">${t('low')}</div></div>`;
+  const q = $('sq').value.trim().toLowerCase();
+  let list = S.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q));
+  if (stockFilter === 'low') list = list.filter(p => (+p.qty || 0) <= +(p.low || 0));
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  $('stockList').innerHTML = list.length ? list.map(p => {
+    const st = p.qty <= 0 ? 'out' : (p.qty <= +(p.low || 0) ? 'low' : 'ok');
+    return `<button class="prow" onclick="openProductForm('${p.id}')"><span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode ? 'Code ' + esc(p.barcode) : 'No barcode'} · ${unitName(p.unit)}</span></span>
+    <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty <= 0 ? 'Out of stock' : p.qty + ' ' + unitName(p.unit)}</span></span></button>`;
+  }).join('') : '<div class="empty">No products match.</div>';
   refreshChrome();
 }
+
 function searchProducts(t0){
-  const t1=String(t0||'').toLowerCase();
-  return S.products.filter(p=>p.name.toLowerCase().includes(t1)||(p.barcode||'').toLowerCase().includes(t1)).slice(0,10);
+  const t1 = String(t0 || '').toLowerCase();
+  return S.products.filter(p => p.name.toLowerCase().includes(t1) || (p.barcode || '').toLowerCase().includes(t1)).slice(0, 10);
 }
+
 function onQ(){
-  const v=$('q').value.trim(),box=$('results'); if(!v){box.innerHTML='';return;}
-  const m=searchProducts(v);
-  box.innerHTML=m.map(p=>`<button class="res" ${p.qty<=0?'disabled':''} onclick="pickResult('${p.id}')"><span><span class="p">${esc(p.name)}</span><br><small>${p.qty} ${unitName(p.unit)}</small></span><b>${money(p.price)}</b></button>`).join('');
+  const v = $('q').value.trim(), box =$('results'); if (!v) { box.innerHTML = ''; return; }
+  const m = searchProducts(v);
+  box.innerHTML = m.map(p => `<button class="res" ${p.qty <= 0 ? 'disabled' : ''} onclick="pickResult('${p.id}')"><span><span class="p">${esc(p.name)}</span><br><small>${p.qty} ${unitName(p.unit)}</small></span><b>${money(p.price)}</b></button>`).join('');
 }
+
+function pickResult(id) { const p = prod(id); if (p && addToCart(p)) { $('q').value = ''; onQ(); } }
+
 function enterQ(){
-  const v=$('q').value.trim();if(!v)return;
-  const p=findByBarcode(v);
-  if(p){if(addToCart(p)){beep(true);$('q').value='';onQ();}return;}
-  const m=searchProducts(v);
-  if(m.length===1){pickResult(m[0].id);return;}
-  if(!m.length){lastUnknown=v;$('results').innerHTML=`<div class="notfound">Nothing matches <b>${esc(v)}</b>.<br><button class="btn primary" onclick="addUnknown()">${t('quick')}</button></div>`;}
+  const v = $('q').value.trim(); if (!v) return;
+  const p = findByBarcode(v);
+  if (p) { if (addToCart(p)) { beep(true); $('q').value = ''; onQ(); } return; }
+  const m = searchProducts(v);
+  if (m.length === 1) { pickResult(m[0].id); return; }
+  if (!m.length) { lastUnknown = v; $('results').innerHTML = `<div class="notfound">Nothing matches <b>${esc(v)}</b>.<br><button class="btn primary" onclick="addUnknown()">${t('quick')}</button></div>`; }
 }
-function addUnknown(){openProductForm(null,lastUnknown,true);}
+
+function addUnknown(){ openProductForm(null, lastUnknown, true); }
+
 function saveInvoice(){
-  if(!cart.length){toast('Add at least one item');return;}
-  for(const l of cart){const p=prod(l.pid);if(!p){toast(l.name+' is no longer in stock');return;}if(p.qty<l.qty){toast('Only '+p.qty+' of '+p.name+' left');return;}}
-  const t0=totals(),now=new Date().toISOString();
-  cart.forEach(l=>{const p=prod(l.pid);p.qty=r2(p.qty-l.qty);p.sold=r2((p.sold||0)+l.qty);});
-  const inv={id:uid(),no:'INV-'+String(S.settings.next).padStart(4,'0'),at:now,customer:$('custName').value.trim(),customerPhone:($('custPhone')?.value||'').trim(),
-    items:cart.map(l=>({pid:l.pid,name:l.name,barcode:l.barcode,price:l.price,qty:l.qty,unit:l.unit||'pcs'})),
-    subtotal:t0.sub,discount:t0.disc,total:t0.total,payments:t0.paid>0?[{amt:t0.paid,at:now}]:[]};
-  S.settings.next++;S.invoices.unshift(inv);save();clearCart();go('sell');toast(inv.no+' saved, stock updated');showInvoice(inv.id);
+  if (!cart.length) { toast('Add at least one item'); return; }
+  for (const l of cart) { const p = prod(l.pid); if (!p) { toast(l.name + ' is no longer in stock'); return; } if (p.qty < l.qty) { toast('Only ' + p.qty + ' of ' + p.name + ' left'); return; } }
+  const t0 = totals(), now = new Date().toISOString();
+  cart.forEach(l => { const p = prod(l.pid); p.qty = r2(p.qty - l.qty); p.sold = r2((p.sold || 0) + l.qty); });
+  const inv = { id: uid(), no: 'INV-' + String(S.settings.next).padStart(4, '0'), at: now, customer: $('custName').value.trim(), customerPhone: ($('custPhone')?.value || '').trim(),
+    items: cart.map(l => ({ pid: l.pid, name: l.name, barcode: l.barcode, price: l.price, qty: l.qty, unit: l.unit || 'pcs' })),
+    subtotal: t0.sub, discount: t0.disc, total: t0.total, payments: t0.paid > 0 ? [{ amt: t0.paid, at: now }] : [] };
+  S.settings.next++; S.invoices.unshift(inv); save(); clearCart(); go('sell'); toast(inv.no + ' saved, stock updated'); showInvoice(inv.id);
 }
 
 function invoiceItemName(l){
-  const p=prod(l.pid);
-  const lang=S.settings.lang||'en';
-  if(p){
-    if(lang==='ur' && p.nameUrdu) return p.nameUrdu;
-    if(lang==='ps' && p.namePashto) return p.namePashto;
+  const p = prod(l.pid);
+  const lang = S.settings.lang || 'en';
+  if (p) {
+    if (lang === 'ur' && p.nameUrdu) return p.nameUrdu;
+    if (lang === 'ps' && p.namePashto) return p.namePashto;
   }
   return l.name;
 }
+
 function receiptHTML(inv){
-  const paid=invPaid(inv),due=invDue(inv);
-  const lang=S.settings.lang||'en', rtl=lang!=='en';
-  const logo=S.settings.logo?`<img class="invoice-logo" src="${S.settings.logo}">`:'';
-  const change=Math.max(0,paid-inv.total);
-  const items=inv.items.map(l=>`<tr>
-    <td class="desc">${esc(invoiceItemName(l))}${(l.name!==invoiceItemName(l))?`<br><small>${esc(l.name)}</small>`:''}</td>
+  const paid = invPaid(inv);
+  const lang = S.settings.lang || 'en', rtl = lang !== 'en';
+  const logo = S.settings.logo ? `<img class="invoice-logo" src="${S.settings.logo}">` : '';
+  const change = Math.max(0, paid - inv.total);
+  const items = inv.items.map(l => `<tr>
+    <td class="desc">${esc(invoiceItemName(l))}${(l.name !== invoiceItemName(l)) ? `<br><small>${esc(l.name)}</small>` : ''}</td>
     <td class="num">${l.qty} ${unitName(l.unit)}</td>
     <td class="num">${money(l.price)}</td>
-    <td class="amt">${money(l.price*l.qty)}</td>
+    <td class="amt">${money(l.price * l.qty)}</td>
   </tr>`).join('');
-  return `<div class="invoice-paper ${rtl?'invoice-rtl':''}" id="pdfReceipt">
+  return `<div class="invoice-paper ${rtl ? 'invoice-rtl' : ''}" id="pdfReceipt">
     <div class="invoice-head">
       <div class="invoice-brand">
         ${logo}
         <div class="invoice-shop">${esc(S.settings.shop)}</div>
-        ${S.settings.address?`<div class="invoice-sub">${esc(S.settings.address)}</div>`:''}
-        ${S.settings.phone?`<div class="invoice-sub">${esc(S.settings.phone)}</div>`:''}
+        ${S.settings.address ? `<div class="invoice-sub">${esc(S.settings.address)}</div>` : ''}
+        ${S.settings.phone ? `<div class="invoice-sub">${esc(S.settings.phone)}</div>` : ''}
         <div style="font-size:16px;font-weight:800;margin-top:8px">${invText('invoiceTitle')}</div>
       </div>
       <div class="stamp-box">${invText('stamp')}<div class="stamp-space"></div></div>
@@ -1104,8 +920,8 @@ function receiptHTML(inv){
     <div class="invoice-info">
       <div class="info-cell"><span class="info-label">${invText('date')}:</span>${fmtDate(inv.at)}</div>
       <div class="info-cell"><span class="info-label">${invText('memo')}:</span>${esc(inv.no)}</div>
-      <div class="info-cell"><span class="info-label">${invText('billedTo')}:</span>${esc(inv.customer||t('walkin'))}</div>
-      <div class="info-cell"><span class="info-label">${invText('phone')}:</span>${esc(inv.customerPhone||'—')}</div>
+      <div class="info-cell"><span class="info-label">${invText('billedTo')}:</span>${esc(inv.customer || t('walkin'))}</div>
+      <div class="info-cell"><span class="info-label">${invText('phone')}:</span>${esc(inv.customerPhone || '—')}</div>
     </div>
 
     <table class="invoice-table">
@@ -1125,7 +941,7 @@ function receiptHTML(inv){
       </div>
       <div class="invoice-totals">
         <div class="total-row"><span>${t('subtotal')}</span><span>${money(inv.subtotal)}</span></div>
-        <div class="total-row"><span>${t('discount')}</span><span>${money(inv.discount||0)}</span></div>
+        <div class="total-row"><span>${t('discount')}</span><span>${money(inv.discount || 0)}</span></div>
         <div class="total-row grand"><span>${t('total')}</span><span>${money(inv.total)}</span></div>
       </div>
     </div>
@@ -1136,11 +952,12 @@ function receiptHTML(inv){
     </div>
   </div>`;
 }
+
 function showInvoice(id){
-  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
-  const paid=invPaid(inv),due=invDue(inv);
-  openSheet(receiptHTML(inv)+`
-    ${due>0.004?`<div class="paybox no-print"><label style="margin:0">${t('payment')}<div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">${t('add')}</button></div></label></div>`:''}
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const due = invDue(inv);
+  openSheet(receiptHTML(inv) + `
+    ${due > 0.004 ? `<div class="paybox no-print"><label style="margin:0">${t('payment')}<div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">${t('add')}</button></div></label></div>` : ''}
     <div class="invoice-actions no-print">
       <button class="btn primary" onclick="printInvoice('${inv.id}')">🖨️ ${invText('print')}</button>
       <button class="btn" onclick="exportInvoiceJPG('${inv.id}',false)">🖼️ JPG</button>
@@ -1148,46 +965,48 @@ function showInvoice(id){
       <button class="btn ghost" onclick="closeSheet()">✕ ${t('close')}</button>
     </div>`);
 }
-async function exportInvoiceJPG(id,share){
-  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
-  const node=document.createElement('div');
-  node.style.cssText='position:fixed;left:-10000px;top:0;width:760px;background:#fff;padding:0';
-  node.innerHTML=receiptHTML(inv);
+
+async function exportInvoiceJPG(id, share){
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const node = document.createElement('div');
+  node.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;background:#fff;padding:0';
+  node.innerHTML = receiptHTML(inv);
   document.body.appendChild(node);
-  try{
-    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#fff',useCORS:true});
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
-    const file=new File([blob],inv.no+'.jpg',{type:'image/jpeg'});
-    if(share && navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
-      await navigator.share({title:inv.no,text:S.settings.shop+' - '+inv.no,files:[file]});
+  try {
+    const canvas = await html2canvas(node, { scale: 2, backgroundColor: '#fff', useCORS: true });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+    const file = new File([blob], inv.no + '.jpg', { type: 'image/jpeg' });
+    if (share && navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+      await navigator.share({ title: inv.no, text: S.settings.shop + ' - ' + inv.no, files: [file] });
       toast('Share opened — select WhatsApp');
-    }else{
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=inv.no+'.jpg';a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-      toast(share?'JPG saved. Open WhatsApp and attach it.':'JPG exported');
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = inv.no + '.jpg'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast(share ? 'JPG saved. Open WhatsApp and attach it.' : 'JPG exported');
     }
-  }catch(e){toast('JPG export failed');}
-  finally{node.remove();}
+  } catch (e) { toast('JPG export failed'); }
+  finally { node.remove(); }
 }
+
 function printInvoice(id){
-  const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
-  const w=window.open('','_blank');
-  if(!w){window.print();return;}
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const w = window.open('', '_blank');
+  if (!w) { window.print(); return; }
   w.document.write(`<html><head><title>${esc(inv.no)}</title><style>
   body{font-family:Arial,sans-serif;background:#eee;margin:0;padding:20px}
   .invoice-paper{width:760px;max-width:100%;margin:auto;background:#fff;color:#111;border:1.5px solid #222;padding:24px;box-sizing:border-box}
   .invoice-head{display:grid;grid-template-columns:1fr 190px;gap:18px;min-height:145px}.invoice-brand{text-align:center}.invoice-logo{max-width:150px;max-height:82px;object-fit:contain;margin:0 auto 8px;display:block}.invoice-shop{font-size:25px;font-weight:900}.invoice-sub{font-size:13px}.stamp-box{border:1.5px solid #222;border-radius:12px;height:120px;padding:10px;text-align:center;font-weight:700}.stamp-space{height:82px}.invoice-divider{border-top:2px solid #222;margin:12px 0}.invoice-info{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #222;border-bottom:1px solid #222}.info-cell{padding:9px 10px;border-bottom:1px solid #222}.info-cell:nth-child(odd){border-right:1px solid #222}.info-label{font-weight:800;margin-right:8px}.invoice-table{width:100%;border-collapse:collapse;margin-top:12px}.invoice-table th,.invoice-table td{border:1px solid #222;padding:9px 8px}.invoice-table th{background:#f5f5f5}.desc{text-align:left}.num{text-align:center}.amt{text-align:right}.invoice-bottom{display:grid;grid-template-columns:1fr 300px}.invoice-notes{border-left:1px solid #222;border-bottom:1px solid #222;min-height:130px;padding:12px}.invoice-totals{border-right:1px solid #222;border-bottom:1px solid #222}.total-row{display:grid;grid-template-columns:1fr 125px;border-bottom:1px solid #222}.total-row span{padding:8px 10px}.total-row span:last-child{text-align:right;border-left:1px solid #222}.total-row.grand{font-size:18px;font-weight:900}.invoice-foot{display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #222;margin-top:14px}.foot-box{padding:10px;border-right:1px solid #222}.invoice-rtl{direction:rtl}.invoice-rtl .desc{text-align:right}.invoice-rtl .amt{text-align:left}
   @media print{body{background:#fff;padding:0}.invoice-paper{border:0;width:100%}}
   </style></head><body>${receiptHTML(inv)}</body></html>`);
-  w.document.close();w.focus();setTimeout(()=>w.print(),300);
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
 function openSettings(){
-  const logo=S.settings.logo||'';
+  const logo = S.settings.logo || '';
   openSheet(`<h3>${t('settings')}</h3>
     <label>${t('shop')}<input id="st_shop" type="text" value="${esc(S.settings.shop)}"></label>
-    <label>Phone / WhatsApp<input id="st_phone" type="text" value="${esc(S.settings.phone||'')}"></label>
-    <label>Address<input id="st_address" type="text" value="${esc(S.settings.address||'')}"></label>
+    <label>Phone / WhatsApp<input id="st_phone" type="text" value="${esc(S.settings.phone || '')}"></label>
+    <label>Address<input id="st_address" type="text" value="${esc(S.settings.address || '')}"></label>
     <label>${t('currency')}<input id="st_cur" type="text" maxlength="8" value="${esc(S.settings.cur)}"></label>
     <label>${t('language')}</label>
     <div class="lang-grid">
@@ -1196,46 +1015,48 @@ function openSettings(){
       <button class="lang-btn ${S.settings.lang==='ps'?'on':''}" onclick="setLang('ps')">پښتو</button>
     </div>
     <label style="margin-top:14px">${t('logo')}</label>
-    <div class="logo-preview">${logo?`<img src="${logo}">`:'No logo'}</div>
+    <div class="logo-preview">${logo ? `<img src="${logo}">` : 'No logo'}</div>
     <div class="logo-upload"><input id="logoFile" type="file" accept="image/*" onchange="readLogo(this)"><button class="btn" onclick="removeLogo()">${t('remove')}</button></div>
     <div class="actions"><button class="btn primary" onclick="saveSettings()">✓ ${t('save')}</button><button class="btn ghost" onclick="closeSheet()">${t('close')}</button></div>
     <div class="card" style="margin-top:16px"><b>${t('reset')}</b><p style="color:var(--muted);margin:6px 0 10px">Deletes all products and invoices on this device.</p><button class="btn danger" onclick="confirmTap(this,resetAll)">Reset all data</button></div>`);
 }
-function setLang(l){S.settings.lang=l;save();closeSheet();applyLang();renderCart();if(view==='stock')renderStock();if(view==='inv')renderInv();openSettings();}
+function setLang(l){ S.settings.lang = l; save(); closeSheet(); applyLang(); renderCart(); if (view === 'stock') renderStock(); if (view === 'inv') renderInv(); openSettings(); }
 function readLogo(input){
-  const f=input.files&&input.files[0];if(!f)return;
-  if(f.size>800000){toast('Please use a logo smaller than 800 KB');return;}
-  const r=new FileReader();r.onload=()=>{S.settings.logo=r.result;save();openSettings();};r.readAsDataURL(f);
+  const f = input.files && input.files[0]; if (!f) return;
+  if (f.size > 800000) { toast('Please use a logo smaller than 800 KB'); return; }
+  const r = new FileReader(); r.onload = () => { S.settings.logo = r.result; save(); openSettings(); }; r.readAsDataURL(f);
 }
-function removeLogo(){S.settings.logo='';save();openSettings();}
+function removeLogo(){ S.settings.logo = ''; save(); openSettings(); }
 function saveSettings(){
-  S.settings.shop=$('st_shop').value.trim()||'Shaheen Mart';
-  S.settings.phone=$('st_phone').value.trim();
-  S.settings.address=$('st_address').value.trim();
-  S.settings.cur=$('st_cur').value.trim()||'Rs.';
-  save();closeSheet();renderCart();go(view);toast('Settings saved');
+  S.settings.shop = $('st_shop').value.trim() || 'Shaheen Mart';
+  S.settings.phone = $('st_phone').value.trim();
+  S.settings.address = $('st_address').value.trim();
+  S.settings.cur = $('st_cur').value.trim() || 'Rs.';
+  save(); closeSheet(); renderCart(); go(view); toast('Settings saved');
 }
 function addQuickItem(){
-  const name=prompt(t('name'));if(!name)return;
-  const price=+prompt(t('price'),'0');if(!(price>=0))return;
-  const p={id:uid(),name,barcode:'',price:r2(price),qty:999999,low:0,unit:'pcs',sold:0,quick:true};
-  S.products.push(p);save();addToCart(p,1);toast(name+' added');
+  const name = prompt(t('name')); if (!name) return;
+  const price = +prompt(t('price'), '0'); if (!(price >= 0)) return;
+  const p = { id: uid(), name, barcode: '', price: r2(price), qty: 999999, low: 0, unit: 'pcs', sold: 0, quick: true };
+  S.products.push(p); save(); addToCart(p, 1); toast(name + ' added');
+}
+function resetAll(){
+  S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang: 'en', logo: '', phone: '', address: '' } };
+  seed(); save(); cart = []; clearCart(); closeSheet(); go('sell'); toast('Data reset');
 }
 
-/* Migration for old files */
-S.settings=Object.assign({shop:'Shaheen Mart',cur:'Rs.',next:1,lang:'en',logo:'',phone:'',address:''},S.settings||{});
-S.products.forEach(p=>{p.unit=p.unit||'pcs';});
-applyLang();
+/* Migration & Initialization */
+S.settings = Object.assign({ shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang: 'en', logo: '', phone: '', address: '' }, S.settings || {});
+S.products.forEach(p => { p.unit = p.unit || 'pcs'; });
 
-/* ---------- init ---------- */
 if (!load()) { seed(); save(); }
 renderCart();
 refreshChrome();
 </script>
-</body>
-</html>
+
+<!-- Firebase Connection & Sync Script -->
 <script>
-  // 1. Firebase Configuration (Apni keys se replace karein)
+  // Firebase Configuration (Replace with your actual keys if needed)
   const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
@@ -1246,32 +1067,26 @@ refreshChrome();
     appId: "YOUR_APP_ID"
   };
 
-  // Firebase Initialize karein
-  if (!firebase.apps.length) {
+  if (typeof firebase !== "undefined" && !firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
-  }
-  const database = firebase.database();
-
-  // 2. Realtime Connection Status Checker
-  const connectedRef = database.ref(".info/connected");
-  
-  connectedRef.on("value", (snap) => {
-    const statusBadge = document.querySelector('.badge'); // Status badge element selector
+    const database = firebase.database();
+    const connectedRef = database.ref(".info/connected");
     
-    if (snap.val() === true) {
-      if (statusBadge) {
-        statusBadge.textContent = "Cloud Live Syncing: Online";
-        statusBadge.style.backgroundColor = "#28a745"; // Green Color
+    connectedRef.on("value", (snap) => {
+      const statusBadge = document.getElementById('syncStatus');
+      if (snap.val() === true) {
+        if (statusBadge) {
+          statusBadge.textContent = "Online";
+          statusBadge.style.backgroundColor = "#28a745";
+        }
+      } else {
+        if (statusBadge) {
+          statusBadge.textContent = "Offline";
+          statusBadge.style.backgroundColor = "#b85b00";
+        }
       }
-      // Invoices load karne ka function agar available ho
-      if (typeof loadLiveInvoices === "function") {
-        loadLiveInvoices();
-      }
-    } else {
-      if (statusBadge) {
-        statusBadge.textContent = "Cloud Live Syncing: Offline / Reconnecting";
-        statusBadge.style.backgroundColor = "#b85b00"; // Orange Color
-      }
-    }
-  });
+    });
+  }
 </script>
+</body>
+</html>
