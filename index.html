@@ -165,7 +165,7 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--bg);border-radius:18px 18px 0 0;max-height:92%;overflow:auto;
   transform:translateY(105%);transition:transform .25s ease;padding:8px 16px calc(18px + env(safe-area-inset-bottom,0px));max-width:720px;margin:0 auto}
 .sheet.open{transform:none}
-.grab{width:42px;height:5px;border-radius:99px;background:var(--line);margin:4px auto 12px}
+.grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px}
 .sheet h3{font-size:19px;margin-bottom:12px}
 
 /* receipt */
@@ -227,6 +227,7 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 .small-help{font-size:12px;color:var(--muted);margin-top:4px}
 @media(max-width:520px){.share-row{grid-template-columns:1fr 1fr}.lang-grid{grid-template-columns:repeat(3,1fr)}}
 
+
 /* Premium invoice / JPG sharing */
 .invoice-paper{
   width:100%; max-width:760px; margin:0 auto; background:#fff; color:#111;
@@ -274,6 +275,7 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
  .invoice-bottom{grid-template-columns:1fr 220px}.invoice-actions{grid-template-columns:1fr 1fr}
  .invoice-paper{padding:14px}.invoice-shop{font-size:20px}
 }
+
 </style>
 </head>
 <body>
@@ -396,48 +398,6 @@ nav button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;heig
 <div id="toast"></div>
 
 <script>
-/* ---------- FIREBASE CONFIGURATION & SYNC ---------- */
-const DB_URL = "https://shaheen-mart-default-rtdb.firebaseio.com"; // <-- Replace with your Realtime Database URL
-
-async function fbGet() {
-  if (!DB_URL || DB_URL.includes("YOUR_FIREBASE")) return null;
-  try {
-    const res = await fetch(`${DB_URL}/pos_data.json`);
-    if (res.ok) return await res.json();
-  } catch (e) { console.error("Firebase read error:", e); }
-  return null;
-}
-
-async function fbSave() {
-  if (!DB_URL || DB_URL.includes("YOUR_FIREBASE")) return;
-  try {
-    await fetch(`${DB_URL}/pos_data.json`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(S)
-    });
-  } catch (e) { console.error("Firebase write error:", e); }
-}
-
-function listenFirebase() {
-  if (!DB_URL || DB_URL.includes("YOUR_FIREBASE")) return;
-  try {
-    const source = new EventSource(`${DB_URL}/pos_data.json`);
-    source.onmessage = function(event) {
-      if (event.data && event.data !== "null") {
-        const d = JSON.parse(event.data);
-        if (d) {
-          S.products = d.products || [];
-          S.invoices = d.invoices || [];
-          S.settings = Object.assign(S.settings, d.settings || {});
-          localStorage.setItem(KEY, JSON.stringify(S));
-          refreshAllUI();
-        }
-      }
-    };
-  } catch (e) { console.error("Firebase stream error:", e); }
-}
-
 /* ---------- state & storage ---------- */
 const KEY = 'shaheen_mart_pos_v1';
 let S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
@@ -461,19 +421,7 @@ function load() {
   } catch (e) {}
   return false;
 }
-
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
-  fbSave();
-}
-
-function refreshAllUI() {
-  renderCart();
-  if (view === 'stock') renderStock();
-  if (view === 'inv') renderInv();
-  refreshChrome();
-}
-
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 function seed() {
   const items = [
     ['Basmati Rice 5kg', '8901234500011', 1450, 24],
@@ -539,25 +487,63 @@ function go(v) {
   refreshChrome();
   window.scrollTo(0, 0);
 }
+function refreshChrome() {
+  $('shopName').textContent = S.settings.shop;
+  document.title = S.settings.shop + ' POS';
+  const todaySales = S.invoices.filter(i => isToday(i.at)).reduce((s, i) => s + i.total, 0);
+  $('hdrToday').textContent = money(todaySales);
+  const low = S.products.filter(p => p.qty <= (p.low || 0)).length;
+  $('lowBadge').hidden = !low; $('lowBadge').textContent = low;
+  const dueCount = S.invoices.filter(i => invDue(i) > 0.004).length;
+  $('dueBadge').hidden = !dueCount; $('dueBadge').textContent = dueCount;
+  $('saveBar').hidden = !(view === 'sell' && cart.length);
+}
 
 /* ---------- selling ---------- */
+function addToCart(p, n) {
+  n = n || 1;
+  const line = cart.find(l => l.pid === p.id);
+  const have = line ? line.qty : 0;
+  if (have + n > p.qty) { toast(p.qty <= 0 ? p.name + ' is out of stock' : 'Only ' + p.qty + ' of ' + p.name + ' in stock'); return false; }
+  if (line) line.qty += n; else cart.push({ pid: p.id, name: p.name, barcode: p.barcode, price: p.price, qty: n });
+  renderCart();
+  return true;
+}
 function chg(i, d) {
   const l = cart[i], p = prod(l.pid); if (!l) return;
-  const step = (l.unit && l.unit !== 'pcs') ? 0.1 : 1;
-  const nq = r2(l.qty + d * step);
-  if (nq < step / 2) { rm(i); return; }
-  if (!p || nq > p.qty + 0.0001) { toast('Only ' + (p ? p.qty : 0) + ' in stock'); return; }
+  const nq = l.qty + d;
+  if (nq < 1) { rm(i); return; }
+  if (!p || nq > p.qty) { toast('Only ' + (p ? p.qty : 0) + ' in stock'); return; }
   l.qty = nq; renderCart();
 }
 function setQty(i, v) {
-  const l = cart[i], p = prod(l.pid); let n = r2(+v);
-  if (!(n > 0)) n = l && l.unit !== 'pcs' ? 0.1 : 1;
+  const l = cart[i], p = prod(l.pid); let n = Math.floor(+v);
+  if (!n || n < 1) n = 1;
   if (p && n > p.qty) { n = p.qty; toast('Only ' + p.qty + ' in stock'); }
-  l.qty = r2(n); renderCart();
+  l.qty = n; renderCart();
 }
 function rm(i) { cart.splice(i, 1); renderCart(); }
 function clearCart() { cart = []; $('disc').value = ''; $('custName').value = ''; paidTouched = false; renderCart(); }
 
+function renderCart() {
+  const el = $('cartList');
+  if (!cart.length) {
+    el.innerHTML = '<div class="empty">No items yet. Tap Scan item, or search above.</div>';
+  } else {
+    el.innerHTML = cart.map((l, i) => {
+      const p = prod(l.pid), left = (p ? p.qty : 0) - l.qty;
+      return `<div class="line">
+        <div class="l-main"><div class="l-name">${esc(l.name)}</div><div class="l-sub">${money(l.price)} each, ${left} left after this sale</div></div>
+        <div class="stepper"><button onclick="chg(${i},-1)" aria-label="Less">&minus;</button><input type="number" inputmode="numeric" min="1" value="${l.qty}" onchange="setQty(${i},this.value)" aria-label="Quantity"><button onclick="chg(${i},1)" aria-label="More">+</button></div>
+        <div class="l-total">${money(l.price * l.qty)}</div>
+        <button class="x" onclick="rm(${i})" aria-label="Remove item">&times;</button>
+      </div>`;
+    }).join('');
+  }
+  $('payCard').hidden = !cart.length;
+  $('clearBtn').hidden = !cart.length;
+  updateTotals();
+}
 function totals() {
   const sub = r2(cart.reduce((s, l) => s + l.price * l.qty, 0));
   const disc = Math.min(Math.max(0, r2($('disc').value)), sub);
@@ -580,7 +566,56 @@ function updateTotals() {
 function payFull() { paidTouched = false; updateTotals(); }
 function payNone() { paidTouched = true; $('paid').value = 0; updateTotals(); }
 
+function saveInvoice() {
+  if (!cart.length) { toast('Add at least one item'); return; }
+  for (const l of cart) {
+    const p = prod(l.pid);
+    if (!p) { toast(l.name + ' is no longer in stock list'); return; }
+    if (p.qty < l.qty) { toast('Only ' + p.qty + ' of ' + p.name + ' left'); return; }
+  }
+  const t = totals();
+  const now = new Date().toISOString();
+  cart.forEach(l => { const p = prod(l.pid); p.qty -= l.qty; p.sold = (p.sold || 0) + l.qty; });
+  const inv = {
+    id: uid(), no: 'INV-' + String(S.settings.next).padStart(4, '0'), at: now,
+    customer: $('custName').value.trim(),
+    items: cart.map(l => ({ pid: l.pid, name: l.name, barcode: l.barcode, price: l.price, qty: l.qty })),
+    subtotal: t.sub, discount: t.disc, total: t.total,
+    payments: t.paid > 0 ? [{ amt: t.paid, at: now }] : []
+  };
+  S.settings.next++;
+  S.invoices.unshift(inv);
+  save();
+  clearCart();
+  go('sell');
+  toast(inv.no + ' saved, stock updated');
+  showInvoice(inv.id);
+}
+
+/* lookup */
+function onQ() {
+  const v = $('q').value.trim(), box = $('results');
+  if (!v) { box.innerHTML = ''; return; }
+  const m = searchProducts(v);
+  box.innerHTML = m.map(p => `<button class="res" ${p.qty <= 0 ? 'disabled' : ''} onclick="pickResult('${p.id}')">
+      <span><span class="p">${esc(p.name)}</span><br><small>${p.qty} in stock</small></span><b>${money(p.price)}</b></button>`).join('');
+}
 function pickResult(id) { const p = prod(id); if (p && addToCart(p)) { $('q').value = ''; onQ(); } }
+function enterQ() {
+  const v = $('q').value.trim(); if (!v) return;
+  const p = findByBarcode(v);
+  if (p) { if (addToCart(p)) { beep(true); $('q').value = ''; onQ(); } return; }
+  const m = searchProducts(v);
+  if (m.length === 1) { pickResult(m[0].id); return; }
+  if (!m.length) {
+    lastUnknown = v;
+    $('results').innerHTML = `<div class="notfound">Nothing matches <b>${esc(v)}</b>. <button class="link" onclick="addUnknown()">Add as new product</button></div>`;
+  }
+}
+function addUnknown() {
+  closeScanner(); closeSheet();
+  openProductForm(null, lastUnknown, true);
+}
 
 /* ---------- scanner ---------- */
 let h5 = null, scanHandler = null, lastCode = '', lastTime = 0, scanning = false;
@@ -609,7 +644,7 @@ async function openScanner(handler, title, hint) {
     scanning = true;
   } catch (e) {
     scanning = false;
-    scanMsg('Camera is not available (' + esc((e && e.message) || e) + '). Allow camera access in your browser, or type the code below.', 'bad');
+    scanMsg('Camera is not available (' + esc((e && e.message) || e) + '). Allow camera access in your browser, or type the code below. If this page is embedded, open it in its own browser tab.', 'bad');
   }
 }
 function onScan(code) {
@@ -651,7 +686,27 @@ function closeSheet() { $('backdrop').classList.remove('open'); $('sheet').class
 
 /* ---------- stock ---------- */
 function setStockFilter(f) { stockFilter = f; $('fAll').classList.toggle('on', f === 'all'); $('fLow').classList.toggle('on', f === 'low'); renderStock(); }
-
+function renderStock() {
+  const units = S.products.reduce((s, p) => s + p.qty, 0);
+  const value = S.products.reduce((s, p) => s + p.qty * p.price, 0);
+  const low = S.products.filter(p => p.qty <= (p.low || 0));
+  $('stockStats').innerHTML = `
+    <div class="stat"><div class="v">${S.products.length}</div><div class="k">Products</div></div>
+    <div class="stat"><div class="v">${units.toLocaleString()}</div><div class="k">Units in stock</div></div>
+    <div class="stat"><div class="v">${money(value)}</div><div class="k">Stock value at selling price</div></div>
+    <div class="stat ${low.length ? 'warn' : ''}"><div class="v">${low.length}</div><div class="k">Low or out of stock</div></div>`;
+  const q = $('sq').value.trim().toLowerCase();
+  let list = S.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q));
+  if (stockFilter === 'low') list = list.filter(p => p.qty <= (p.low || 0));
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  $('stockList').innerHTML = list.length ? list.map(p => {
+    const st = p.qty <= 0 ? 'out' : (p.qty <= (p.low || 0) ? 'low' : 'ok');
+    return `<button class="prow" onclick="openProductForm('${p.id}')">
+      <span><span class="n">${esc(p.name)}</span><br><span class="s">${p.barcode ? 'Code ' + esc(p.barcode) : 'No code'}</span></span>
+      <span class="right"><b>${money(p.price)}</b><br><span class="pill ${st}">${p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock'}</span></span></button>`;
+  }).join('') : '<div class="empty">' + (S.products.length ? 'No products match.' : 'No products yet. Tap Add product to start your stock list.') + '</div>';
+  refreshChrome();
+}
 function openProductForm(id, code, addAfter) {
   const p = id ? prod(id) : null; formAddAfter = !!addAfter;
   const unit = p && p.unit ? p.unit : 'pcs';
@@ -689,6 +744,25 @@ function openProductForm(id, code, addAfter) {
 function scanInto() {
   openScanner(code => { $('f_code').value = code; beep(true); closeScanner(); }, 'Scan product code', 'Scan the barcode or QR code on the product.');
 }
+function saveProduct(id) {
+  const err = m => { $('f_err').textContent = m; };
+  const name = $('f_name').value.trim(), code = $('f_code').value.trim();
+  const priceRaw = $('f_price').value, qtyRaw = $('f_qty').value;
+  if (!name) return err('Enter a product name.');
+  if (priceRaw === '' || +priceRaw < 0) return err('Enter a selling price.');
+  if (qtyRaw === '' || +qtyRaw < 0) return err('Enter the quantity in stock (0 or more).');
+  const dup = code && S.products.find(x => x.id !== id && x.barcode && norm(x.barcode) === norm(code));
+  if (dup) return err('This code already belongs to ' + dup.name + '.');
+  const data = { name, barcode: code, price: r2(priceRaw), qty: Math.floor(+qtyRaw), low: Math.max(0, Math.floor(+$('f_low').value || 0)) };
+  let p;
+  if (id) { p = prod(id); Object.assign(p, data); }
+  else { p = Object.assign({ id: uid(), sold: 0 }, data); S.products.push(p); }
+  save(); closeSheet();
+  toast(id ? 'Product updated' : 'Product added');
+  if (formAddAfter) { formAddAfter = false; if (addToCart(p)) toast(p.name + ' added to invoice'); }
+  if (view === 'stock') renderStock();
+  refreshChrome();
+}
 function delProduct(id) {
   S.products = S.products.filter(p => p.id !== id);
   cart = cart.filter(l => l.pid !== id);
@@ -718,6 +792,30 @@ function renderInv() {
   }).join('') : '<div class="empty">' + (S.invoices.length ? 'No invoices match.' : 'No invoices yet. Saved sales appear here.') + '</div>';
   refreshChrome();
 }
+function showInvoice(id) {
+  const inv = S.invoices.find(x => x.id === id); if (!inv) return;
+  const paid = invPaid(inv), due = invDue(inv);
+  openSheet(`<div class="receipt">
+      <div class="r-shop">${esc(S.settings.shop)}</div>
+      <div class="r-meta">${esc(inv.no)}</div>
+      <div class="r-meta">${fmtDate(inv.at)}</div>
+      ${inv.customer ? `<div class="r-meta">Customer: ${esc(inv.customer)}</div>` : ''}
+      <table class="r-items">${inv.items.map(l => `<tr><td>${esc(l.name)}<br><small>${l.qty} x ${num(l.price)}</small></td><td>${num(l.qty * l.price)}</td></tr>`).join('')}</table>
+      <div class="r-sum">
+        <div class="r"><span>Subtotal</span><span>${money(inv.subtotal)}</span></div>
+        ${inv.discount > 0 ? `<div class="r"><span>Discount</span><span>- ${money(inv.discount)}</span></div>` : ''}
+        <div class="r big"><span>Total</span><span>${money(inv.total)}</span></div>
+        <div class="r"><span>Paid</span><span>${money(paid)}</span></div>
+        <div class="r"><span><b>Balance due</b></span><span><b>${money(due)}</b></span></div>
+      </div>
+      ${inv.payments.length ? `<div class="r-pay">${inv.payments.map(p => `<div><span>Payment on ${fmtDate(p.at)}</span><span>${money(p.amt)}</span></div>`).join('')}</div>` : ''}
+    </div>
+    ${due > 0.004 ? `<div class="paybox no-print">
+      <label style="margin:0">Record a payment
+        <div class="row"><input id="pay_amt" type="number" inputmode="decimal" min="0" step="0.01" value="${due}"><button class="btn primary" onclick="addPayment('${inv.id}')">Add payment</button></div>
+      </label></div>` : ''}
+    <div class="actions no-print"><button class="btn primary" onclick="window.print()">Print receipt</button><button class="btn ghost" onclick="closeSheet()">Close</button></div>`);
+}
 function addPayment(id) {
   const inv = S.invoices.find(x => x.id === id); if (!inv) return;
   const amt = r2($('pay_amt').value), due = invDue(inv);
@@ -727,6 +825,29 @@ function addPayment(id) {
   save(); showInvoice(id); renderInv(); refreshChrome();
   toast(invDue(inv) <= 0.004 ? inv.no + ' is fully paid' : 'Payment recorded');
 }
+
+/* ---------- settings ---------- */
+function openSettings() {
+  openSheet(`<h3>Settings</h3>
+    <label>Shop name<input id="st_shop" type="text" value="${esc(S.settings.shop)}"></label>
+    <label>Currency symbol<input id="st_cur" type="text" maxlength="6" value="${esc(S.settings.cur)}"></label>
+    <div class="actions"><button class="btn primary" onclick="saveSettings()">Save settings</button><button class="btn ghost" onclick="closeSheet()">Cancel</button></div>
+    <div class="card" style="margin-top:16px">
+      <b>Reset everything</b>
+      <p style="color:var(--muted);margin:6px 0 10px">Deletes all products and invoices on this device and restores the sample stock list.</p>
+      <button class="btn danger" onclick="confirmTap(this,resetAll)">Reset all data</button>
+    </div>`);
+}
+function saveSettings() {
+  S.settings.shop = $('st_shop').value.trim() || 'Shaheen Mart';
+  S.settings.cur = $('st_cur').value.trim() || 'Rs.';
+  save(); closeSheet(); renderCart(); go(view); toast('Settings saved');
+}
+function resetAll() {
+  S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
+  seed(); save(); cart = []; clearCart(); closeSheet(); go('sell'); toast('Data reset');
+}
+
 
 /* ---------- Shaheen Mart simple upgrade layer ---------- */
 const LANG = {
@@ -789,6 +910,7 @@ const LANG = {
   }
 };
 
+
 Object.assign(LANG.en,{
   invoiceTitle:"SALES INVOICE", date:"Date", memo:"Memo No.", billedTo:"Billed To",
   phone:"Phone", description:"Description", qty:"Qty", unitPrice:"Price", amount:"Amount",
@@ -807,10 +929,9 @@ Object.assign(LANG.ps,{
   stamp:"د پلورونکي مهر او لاسلیک", paidLabel:"ادا شوې", change:"باقي/واپس پیسې", thank:"له موږ څخه د پیرودنې مننه",
   notes:"یادښت", cashier:"کیشیر"
 });
-
 function invText(k){return (LANG[S.settings.lang||'en']||LANG.en)[k]||LANG.en[k]||k;}
-function t(k){ return (LANG[S.settings.lang || 'en'] || LANG.en)[k] || LANG.en[k] || k; }
 
+function t(k){ return (LANG[S.settings.lang || 'en'] || LANG.en)[k] || LANG.en[k] || k; }
 function applyLang(){
   const l=S.settings.lang||'en';
   document.documentElement.lang=l==='ur'?'ur':(l==='ps'?'ps':'en');
@@ -819,7 +940,7 @@ function applyLang(){
     'n-sell':t('sell'),'n-stock':t('stock'),'n-inv':t('invoices'),
     'fAll':t('all'),'fLow':t('low'),'iAll':t('allInvoices'),'iDue':t('balance')
   };
-  Object.entries(map).forEach(([id,v])=>{if($(id))$(id).childNodes[0].nodeValue=v;});
+  Object.entries(map).forEach(([id,v])=>{if($(id)) $(id).childNodes[0].nodeValue=v;});
   const q=$('q'); if(q) q.placeholder=t('search');
   const sq=$('sq'); if(sq) sq.placeholder=t('searchProducts');
   const iq=$('iq'); if(iq) iq.placeholder=t('searchInvoices');
@@ -830,7 +951,6 @@ function applyLang(){
   const addBtn=document.querySelector('#v-stock .btn.primary'); if(addBtn) addBtn.textContent=t('addProduct');
   const saveBtn=document.querySelector('#saveBar .btn.primary'); if(saveBtn) saveBtn.textContent=t('saveInvoice');
 }
-
 function refreshChrome(){
   $('shopName').textContent=S.settings.shop;
   document.title=S.settings.shop+' POS';
@@ -843,11 +963,9 @@ function refreshChrome(){
   $('saveBar').hidden=!(view==='sell'&&cart.length);
   applyLang();
 }
-
 function unitName(u){
   return ({pcs:t('piece'),kg:t('kg'),g:t('gram'),ltr:t('liter'),dozen:t('dozen'),pack:t('pack'),box:t('box')})[u]||u||t('piece');
 }
-
 function addToCart(p,n){
   n = n==null ? 1 : +n;
   if(!(n>0)) n=1;
@@ -857,7 +975,20 @@ function addToCart(p,n){
   else cart.push({pid:p.id,name:p.name,barcode:p.barcode,price:p.price,qty:r2(n),unit:p.unit||'pcs'});
   renderCart(); return true;
 }
-
+function chg(i,d){
+  const l=cart[i],p=prod(l.pid); if(!l)return;
+  const step=(l.unit&&l.unit!=='pcs')?0.1:1;
+  const nq=r2(l.qty+d*step);
+  if(nq<step/2){rm(i);return;}
+  if(!p||nq>p.qty+0.0001){toast('Only '+(p?p.qty:0)+' in stock');return;}
+  l.qty=nq;renderCart();
+}
+function setQty(i,v){
+  const l=cart[i],p=prod(l.pid); let n=r2(+v);
+  if(!(n>0)) n=l&&l.unit!=='pcs'?0.1:1;
+  if(p&&n>p.qty){n=p.qty;toast('Only '+p.qty+' in stock');}
+  l.qty=r2(n);renderCart();
+}
 function renderCart(){
   const el=$('cartList');
   if(!cart.length){el.innerHTML='<div class="empty">'+t('noItems')+'</div>';}
@@ -871,7 +1002,6 @@ function renderCart(){
   }).join('');
   $('payCard').hidden=!cart.length;$('clearBtn').hidden=!cart.length;updateTotals();
 }
-
 function saveProduct(id){
   const err=m=>{$('f_err').textContent=m;};
   const name=$('f_name').value.trim(),code=$('f_code').value.trim();
@@ -881,7 +1011,7 @@ function saveProduct(id){
   if(qtyRaw===''||+qtyRaw<0)return err('Enter stock quantity.');
   const dup=code&&S.products.find(x=>x.id!==id&&x.barcode&&norm(x.barcode)===norm(code));
   if(dup)return err('This code already belongs to '+dup.name+'.');
-  const data={name, nameUrdu:($('f_name_ur')?.value||'').trim(), namePashto:($('f_name_ps')?.value\vert{}\vert{}'').trim(), barcode:code,price:r2(priceRaw),qty:r2(qtyRaw),unit,low:Math.max(0,r2($('f_low').value||0))};
+  const data={name, nameUrdu:($('f_name_ur')?.value||'').trim(), namePashto:($('f_name_ps')?.value||'').trim(), barcode:code,price:r2(priceRaw),qty:r2(qtyRaw),unit,low:Math.max(0,r2($('f_low').value||0))};
   let p;
   if(id){p=prod(id);Object.assign(p,data);}
   else{p=Object.assign({id:uid(),sold:0},data);S.products.push(p);}
@@ -889,7 +1019,6 @@ function saveProduct(id){
   if(formAddAfter){formAddAfter=false;if(addToCart(p))toast(p.name+' added to invoice');}
   if(view==='stock')renderStock();refreshChrome();
 }
-
 function renderStock(){
   const units=S.products.reduce((s,p)=>s+(+p.qty||0),0);
   const value=S.products.reduce((s,p)=>s+(+p.qty||0)*(+p.price||0),0);
@@ -909,13 +1038,15 @@ function renderStock(){
   }).join(''):'<div class="empty">No products match.</div>';
   refreshChrome();
 }
-
+function searchProducts(t0){
+  const t1=String(t0||'').toLowerCase();
+  return S.products.filter(p=>p.name.toLowerCase().includes(t1)||(p.barcode||'').toLowerCase().includes(t1)).slice(0,10);
+}
 function onQ(){
   const v=$('q').value.trim(),box=$('results'); if(!v){box.innerHTML='';return;}
   const m=searchProducts(v);
   box.innerHTML=m.map(p=>`<button class="res" ${p.qty<=0?'disabled':''} onclick="pickResult('${p.id}')"><span><span class="p">${esc(p.name)}</span><br><small>${p.qty} ${unitName(p.unit)}</small></span><b>${money(p.price)}</b></button>`).join('');
 }
-
 function enterQ(){
   const v=$('q').value.trim();if(!v)return;
   const p=findByBarcode(v);
@@ -924,9 +1055,7 @@ function enterQ(){
   if(m.length===1){pickResult(m[0].id);return;}
   if(!m.length){lastUnknown=v;$('results').innerHTML=`<div class="notfound">Nothing matches <b>${esc(v)}</b>.<br><button class="btn primary" onclick="addUnknown()">${t('quick')}</button></div>`;}
 }
-
 function addUnknown(){openProductForm(null,lastUnknown,true);}
-
 function saveInvoice(){
   if(!cart.length){toast('Add at least one item');return;}
   for(const l of cart){const p=prod(l.pid);if(!p){toast(l.name+' is no longer in stock');return;}if(p.qty<l.qty){toast('Only '+p.qty+' of '+p.name+' left');return;}}
@@ -947,7 +1076,6 @@ function invoiceItemName(l){
   }
   return l.name;
 }
-
 function receiptHTML(inv){
   const paid=invPaid(inv),due=invDue(inv);
   const lang=S.settings.lang||'en', rtl=lang!=='en';
@@ -1008,7 +1136,6 @@ function receiptHTML(inv){
     </div>
   </div>`;
 }
-
 function showInvoice(id){
   const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
   const paid=invPaid(inv),due=invDue(inv);
@@ -1021,7 +1148,6 @@ function showInvoice(id){
       <button class="btn ghost" onclick="closeSheet()">✕ ${t('close')}</button>
     </div>`);
 }
-
 async function exportInvoiceJPG(id,share){
   const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
   const node=document.createElement('div');
@@ -1043,7 +1169,6 @@ async function exportInvoiceJPG(id,share){
   }catch(e){toast('JPG export failed');}
   finally{node.remove();}
 }
-
 function printInvoice(id){
   const inv=S.invoices.find(x=>x.id===id);if(!inv)return;
   const w=window.open('','_blank');
@@ -1097,34 +1222,56 @@ function addQuickItem(){
   S.products.push(p);save();addToCart(p,1);toast(name+' added');
 }
 
-function resetAll() {
-  S = { products: [], invoices: [], settings: { shop: 'Shaheen Mart', cur: 'Rs.', next: 1, lang:'en', logo:'', phone:'', address:'' } };
-  seed(); save(); cart = []; clearCart(); closeSheet(); go('sell'); toast('Data reset');
-}
+/* Migration for old files */
+S.settings=Object.assign({shop:'Shaheen Mart',cur:'Rs.',next:1,lang:'en',logo:'',phone:'',address:''},S.settings||{});
+S.products.forEach(p=>{p.unit=p.unit||'pcs';});
+applyLang();
 
-/* Initialization */
-async function initApp() {
-  load();
-  const remote = await fbGet();
-  if (remote) {
-    S.products = remote.products || [];
-    S.invoices = remote.invoices || [];
-    S.settings = Object.assign(S.settings, remote.settings || {});
-    localStorage.setItem(KEY, JSON.stringify(S));
-  } else if (!S.products.length) {
-    seed();
-    save();
-  }
-  S.settings = Object.assign({shop:'Shaheen Mart',cur:'Rs.',next:1,lang:'en',logo:'',phone:'',address:''}, S.settings || {});
-  S.products.forEach(p => { p.unit = p.unit || 'pcs'; });
-  
-  applyLang();
-  renderCart();
-  refreshChrome();
-  listenFirebase();
-}
-
-initApp();
+/* ---------- init ---------- */
+if (!load()) { seed(); save(); }
+renderCart();
+refreshChrome();
 </script>
 </body>
 </html>
+<script>
+  // 1. Firebase Configuration (Apni keys se replace karein)
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  // Firebase Initialize karein
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+  const database = firebase.database();
+
+  // 2. Realtime Connection Status Checker
+  const connectedRef = database.ref(".info/connected");
+  
+  connectedRef.on("value", (snap) => {
+    const statusBadge = document.querySelector('.badge'); // Status badge element selector
+    
+    if (snap.val() === true) {
+      if (statusBadge) {
+        statusBadge.textContent = "Cloud Live Syncing: Online";
+        statusBadge.style.backgroundColor = "#28a745"; // Green Color
+      }
+      // Invoices load karne ka function agar available ho
+      if (typeof loadLiveInvoices === "function") {
+        loadLiveInvoices();
+      }
+    } else {
+      if (statusBadge) {
+        statusBadge.textContent = "Cloud Live Syncing: Offline / Reconnecting";
+        statusBadge.style.backgroundColor = "#b85b00"; // Orange Color
+      }
+    }
+  });
+</script>
